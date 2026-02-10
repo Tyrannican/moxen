@@ -6,7 +6,7 @@ use crate::{
     addon::Addon,
     api::CurseClient,
     store::{
-        MoxenConfig,
+        GameVersion, MoxenConfig,
         registry::{self, MoxenRegistry},
     },
 };
@@ -24,17 +24,30 @@ impl MoxenApp {
     }
 
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            config: MoxenConfig::load().context("moxen state creation - config")?,
-            registry: registry::load().context("moxen state creation - registry")?,
-        })
+        let config = MoxenConfig::load().context("moxen state creation - config")?;
+        let registry =
+            registry::load(&config.version).context("moxen state creation - registry")?;
+
+        Ok(Self { config, registry })
+    }
+
+    pub fn switch_game_version(&mut self, version: GameVersion) -> Result<()> {
+        self.config.version = version;
+        self.config.save().context("saving config file")?;
+        println!("Switched game version to {version}");
+
+        Ok(())
     }
 
     pub fn list_contents(&self) {
-        println!("Tracked addons:");
-        for (key, addon) in self.registry.iter() {
-            println!("* {} ({}) - {}", addon.name, key, addon.summary);
-            println!("{addon:?}\n");
+        if self.registry.is_empty() {
+            println!("No Addons tracked.");
+        } else {
+            println!("Tracked addons:");
+            for (key, addon) in self.registry.iter() {
+                println!("* {} ({}) - {}", addon.name, key, addon.summary);
+                println!("{addon:?}\n");
+            }
         }
     }
 
@@ -104,7 +117,7 @@ impl MoxenApp {
     }
 
     fn save(&self) -> Result<()> {
-        registry::save(&self.registry).context("saving state - registry")?;
+        registry::save(&self.registry, &self.config.version).context("saving state - registry")?;
 
         Ok(())
     }

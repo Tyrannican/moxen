@@ -5,6 +5,8 @@ pub mod store;
 
 use clap::{Parser, Subcommand};
 
+use crate::store::GameVersion;
+
 #[derive(Debug, Parser)]
 pub struct Cli {
     #[clap(subcommand)]
@@ -20,6 +22,12 @@ pub enum MoxenCommand {
     Track {
         /// List of Addon IDs to track (Project IDs from Curseforge)
         mod_ids: Vec<i32>,
+    },
+
+    /// Switch registry to use
+    Switch {
+        /// Game version to use
+        registry: GameVersion,
     },
 
     /// List tracked addons in the registry
