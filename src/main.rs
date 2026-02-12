@@ -44,6 +44,9 @@ async fn main() -> Result<()> {
         MoxenCommand::ClearCache => {
             state.clear_cache().context("clearing cache")?;
         }
+        MoxenCommand::Install => {
+            println!("Installing addons!");
+        }
         _ => unreachable!("covered above"),
     }
 

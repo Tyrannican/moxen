@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize, de::Deserializer};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Addon {
     pub id: i32,
@@ -21,7 +21,7 @@ impl<'de> Deserialize<'de> for Addon {
     {
         #[derive(Deserialize)]
         #[serde(untagged)]
-        enum Wrapper {
+        enum AddonWrapper {
             Api(ApiResponse),
             Disk(DiskAddonWrapper),
         }
@@ -58,10 +58,10 @@ impl<'de> Deserialize<'de> for Addon {
             date_modified: Timestamp,
         }
 
-        let wrapper = Wrapper::deserialize(deserializer)?;
+        let wrapper = AddonWrapper::deserialize(deserializer)?;
 
         match wrapper {
-            Wrapper::Disk(inner) => Ok(Self {
+            AddonWrapper::Disk(inner) => Ok(Self {
                 id: inner.id,
                 name: inner.name,
                 status: inner.status,
@@ -71,7 +71,7 @@ impl<'de> Deserialize<'de> for Addon {
                 main_file: inner.main_file,
                 date_modified: inner.date_modified,
             }),
-            Wrapper::Api(inner) => {
+            AddonWrapper::Api(inner) => {
                 let inner = inner.data;
                 let main_file = inner
                     .latest_files
@@ -94,14 +94,14 @@ impl<'de> Deserialize<'de> for Addon {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct AddonAuthor {
     pub id: i32,
     pub name: String,
     pub url: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddonFile {
     pub id: i32,
@@ -113,7 +113,7 @@ pub struct AddonFile {
     pub file_date: Timestamp,
     pub download_url: Option<String>,
     pub game_versions: Vec<String>,
-    pub dependencies: Vec<AddonDependency>,
+    pub modules: Vec<String>,
 }
 
 impl<'de> Deserialize<'de> for AddonFile {
@@ -129,30 +129,42 @@ impl<'de> Deserialize<'de> for AddonFile {
         }
 
         #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum ModuleWrapper {
+            Disk(Vec<String>),
+            Api(Vec<AddonModule>),
+        }
+
+        #[derive(Deserialize)]
         struct ApiHashWrapper {
             value: String,
         }
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct Wrapper {
+        struct AddonFileWrapper {
             id: i32,
             mod_id: i32,
             is_available: bool,
             display_name: Option<String>,
             file_name: String,
             hashes: HashWrapper,
+            modules: ModuleWrapper,
             file_date: Timestamp,
             download_url: Option<String>,
             game_versions: Vec<String>,
-            dependencies: Vec<AddonDependency>,
         }
 
-        let wrapper = Wrapper::deserialize(deserializer)?;
+        let wrapper = AddonFileWrapper::deserialize(deserializer)?;
 
         let hashes = match wrapper.hashes {
             HashWrapper::Api(api_hash) => api_hash.into_iter().map(|hash| hash.value).collect(),
             HashWrapper::Disk(disk_hash) => disk_hash,
+        };
+
+        let modules = match wrapper.modules {
+            ModuleWrapper::Api(api_modules) => api_modules.into_iter().map(|m| m.name).collect(),
+            ModuleWrapper::Disk(disk_modules) => disk_modules,
         };
 
         Ok(Self {
@@ -162,17 +174,17 @@ impl<'de> Deserialize<'de> for AddonFile {
             display_name: wrapper.display_name,
             file_name: wrapper.file_name,
             hashes,
+            modules,
             file_date: wrapper.file_date,
             download_url: wrapper.download_url,
             game_versions: wrapper.game_versions,
-            dependencies: wrapper.dependencies,
         })
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct AddonDependency {
-    pub mod_id: i32,
-    pub relation_type: i32,
+pub struct AddonModule {
+    pub name: String,
+    pub fingerprint: usize,
 }

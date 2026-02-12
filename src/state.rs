@@ -69,7 +69,7 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn update_addons(&self) -> Result<()> {
+    pub async fn update_addons(&mut self) -> Result<()> {
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let addons = self
             .check_updates(Arc::clone(&client))
@@ -85,6 +85,8 @@ impl MoxenApp {
 
         let mut js: JoinSet<Result<()>> = JoinSet::new();
         for addon in addons {
+            self.add_registry_item(addon.clone());
+
             let client = Arc::clone(&client);
             js.spawn(async move {
                 println!("Updating {}", addon.name);
@@ -96,6 +98,7 @@ impl MoxenApp {
                 let cache_path = MoxenPath::dir(format!("registry/cache/{}", addon.slug))
                     .context("constructing cache path")?;
                 let filename = cache_path.join(addon.main_file.file_name);
+
                 std::fs::write(filename, &content)
                     .with_context(|| format!("writing out {} to cache", addon.name))?;
 
@@ -104,8 +107,13 @@ impl MoxenApp {
         }
 
         js.join_all().await;
+        self.save().context("saving registry after update")?;
         println!("Update complete!");
 
+        Ok(())
+    }
+
+    pub fn install_addons(&self) -> Result<()> {
         Ok(())
     }
 

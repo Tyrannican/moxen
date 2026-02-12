@@ -38,4 +38,7 @@ pub enum MoxenCommand {
 
     /// Download the latest version of the addon(s)
     Update,
+
+    /// Install the addons in the WoW directory
+    Install,
 }
