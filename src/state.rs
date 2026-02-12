@@ -171,7 +171,7 @@ impl MoxenApp {
                     .with_context(|| format!("removing module {}", mod_path.display()))?;
             }
 
-            self.registry.remove(&id);
+            self.remove_registry_item(id);
         }
 
         self.save().context("removal - saving registry")?;
@@ -221,6 +221,10 @@ impl MoxenApp {
 
     fn add_registry_item(&mut self, addon: Addon) {
         self.registry.insert(addon.id, addon);
+    }
+
+    fn remove_registry_item(&mut self, id: i32) {
+        self.registry.remove(&id);
     }
 
     fn save(&self) -> Result<()> {
