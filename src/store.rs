@@ -8,7 +8,13 @@ use std::collections::HashMap;
 use crate::addon::Addon;
 
 // TODO: Custom error handling
-// TODO: Track `GameVersion` in the config (retail, beta, classic etc)
+
+const VERSIONS: [GameVersion; 4] = [
+    GameVersion::Retail,
+    GameVersion::Beta,
+    GameVersion::Ptr,
+    GameVersion::Classic,
+];
 
 #[derive(Deserialize, Serialize, Default, Debug, PartialEq, Eq, Copy, Clone, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -16,12 +22,27 @@ pub enum GameVersion {
     #[default]
     Retail,
     Beta,
+    Ptr,
     Classic,
 }
 
 impl GameVersion {
-    pub fn registry_filename(&self) -> String {
-        format!("registry_{}.json", self)
+    pub fn registry_path(&self) -> Result<PathBuf> {
+        let registry = load_path("registry").context("loading registry path")?;
+        if !registry.exists() {
+            std::fs::create_dir_all(&registry).context("creating registry dir")?;
+        }
+
+        Ok(registry.join(format!("{}.json", self)))
+    }
+
+    pub fn suffix(&self) -> String {
+        match self {
+            Self::Retail => "_retail_".to_string(),
+            Self::Beta => "_beta_".to_string(),
+            Self::Ptr => "_ptr_".to_string(),
+            Self::Classic => "_classic_".to_string(),
+        }
     }
 }
 
@@ -31,6 +52,7 @@ impl std::fmt::Display for GameVersion {
             Self::Retail => write!(f, "retail"),
             Self::Beta => write!(f, "beta"),
             Self::Classic => write!(f, "classic"),
+            Self::Ptr => write!(f, "ptr"),
         }
     }
 }
@@ -44,13 +66,13 @@ pub struct MoxenConfig {
 impl MoxenConfig {
     pub fn is_initialised() -> Result<bool> {
         let cfg_path = load_path("config.toml").context("config file path")?;
-        let registries_exist = [GameVersion::Retail, GameVersion::Beta, GameVersion::Classic]
-            .iter()
-            .all(|version| {
-                load_path(version.registry_filename())
-                    .expect("error creating filepath for registry")
-                    .exists()
-            });
+        let registries_exist = VERSIONS.iter().all(|version| {
+            let path = version
+                .registry_path()
+                .context("loading registry path")
+                .expect("error loading path");
+            path.exists()
+        });
 
         Ok(cfg_path.exists() && registries_exist)
     }
@@ -95,9 +117,9 @@ pub fn root_path() -> Result<PathBuf> {
     Ok(root)
 }
 
-pub fn load_path(file: impl AsRef<Path>) -> Result<PathBuf> {
+pub fn load_path(path: impl AsRef<Path>) -> Result<PathBuf> {
     let root = root_path().context("loading home store directory")?;
-    let path = root.join(file);
+    let path = root.join(path);
 
     Ok(path)
 }
@@ -108,9 +130,9 @@ pub mod registry {
     pub type MoxenRegistry = HashMap<i32, Addon>;
 
     pub fn initialise() -> Result<()> {
-        for version in [GameVersion::Retail, GameVersion::Beta, GameVersion::Classic] {
+        for version in VERSIONS {
             let reg = MoxenRegistry::new();
-            let registry_path = load_path(&version.registry_filename())?;
+            let registry_path = version.registry_path().context("registry path")?;
             let registry = serde_json::to_string_pretty(&reg).context("serialising registry")?;
             std::fs::write(&registry_path, &registry).context("writing new registry")?;
         }
@@ -119,7 +141,7 @@ pub mod registry {
     }
 
     pub fn load(version: &GameVersion) -> Result<MoxenRegistry> {
-        let registry_path = load_path(version.registry_filename())?;
+        let registry_path = version.registry_path().context("registry path")?;
         let content = std::fs::read_to_string(&registry_path).context("reading registry file")?;
         let registry = serde_json::from_str(&content).context("deserialising registry")?;
 
@@ -127,7 +149,7 @@ pub mod registry {
     }
 
     pub fn save(registry: &MoxenRegistry, version: &GameVersion) -> Result<()> {
-        let registry_path = load_path(version.registry_filename())?;
+        let registry_path = version.registry_path().context("registry path")?;
         let contents = serde_json::to_string_pretty(registry).context("serialising registry")?;
         std::fs::write(&registry_path, &contents).context("saving registry to disk")?;
 

@@ -6,7 +6,7 @@ use crate::{
     addon::Addon,
     api::CurseClient,
     store::{
-        GameVersion, MoxenConfig,
+        GameVersion, MoxenConfig, load_path,
         registry::{self, MoxenRegistry},
     },
 };
@@ -46,7 +46,6 @@ impl MoxenApp {
             println!("Tracked addons:");
             for (key, addon) in self.registry.iter() {
                 println!("* {} ({}) - {}", addon.name, key, addon.summary);
-                println!("{addon:?}\n");
             }
         }
     }
@@ -71,21 +70,12 @@ impl MoxenApp {
     }
 
     pub async fn update_addons(&self) -> Result<()> {
-        let client = Arc::new(CurseClient::new(&self.config.api_key));
-        let needs_update = self
-            .check_updates(Arc::clone(&client))
-            .await
-            .context("checking for update")?;
-
-        if needs_update.is_empty() {
-            println!("All addons up to date.");
-        }
-
         Ok(())
     }
 
     async fn check_updates(&self, client: Arc<CurseClient>) -> Result<Vec<i32>> {
         let mut to_update = Vec::new();
+        let cache = load_path("cached").context("loading cache path")?;
         let mut js: JoinSet<Result<(i32, i32)>> = JoinSet::new();
         for aid in self.registry.keys() {
             let client = Arc::clone(&client);
@@ -103,7 +93,8 @@ impl MoxenApp {
                 .get(&id)
                 .expect("this has to be present at this point");
 
-            if addon.main_file.id != main_file_id {
+            let check_path = cache.join(&addon.main_file.file_name);
+            if addon.main_file.id != main_file_id || !check_path.exists() {
                 println!("Addon {} requires an update", addon.name);
                 to_update.push(addon.id);
             }
