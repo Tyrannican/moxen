@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
             state.list_contents();
         }
         MoxenCommand::Track { mod_ids } => {
-            state.track_addons(mod_ids.clone()).await?;
+            state.track_addons(mod_ids).await?;
         }
         MoxenCommand::Update => {
             state.update_addons().await.context("updating addons")?;
@@ -45,7 +45,10 @@ async fn main() -> Result<()> {
             state.clear_cache().context("clearing cache")?;
         }
         MoxenCommand::Install => {
-            println!("Installing addons!");
+            state.install_addons().await.context("installing addons")?;
+        }
+        MoxenCommand::Uninstall { mod_ids } => {
+            state.uninstall_addons(mod_ids).await?;
         }
         _ => unreachable!("covered above"),
     }

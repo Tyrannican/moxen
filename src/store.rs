@@ -1,7 +1,4 @@
-use std::{
-    io::Write,
-    path::{Path, PathBuf},
-};
+use std::{io::Write, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
@@ -9,9 +6,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::addon::Addon;
+use path::MoxenPath;
 
 #[derive(Deserialize, Serialize)]
-pub struct AddonInstallPath(PathBuf);
+pub struct AddonInstallPath(pub PathBuf);
+
+impl AddonInstallPath {
+    pub fn addon_dir(&self, version: &GameVersion) -> PathBuf {
+        self.0
+            .join(format!("{}/Interface/Addons", version.suffix()))
+    }
+}
 
 impl std::fmt::Display for AddonInstallPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -73,38 +78,6 @@ impl std::fmt::Display for GameVersion {
     }
 }
 
-pub struct MoxenPath;
-
-impl MoxenPath {
-    pub fn root() -> Result<PathBuf> {
-        let Some(root) = dotstore::home_store("moxen").context("initialising home store")? else {
-            eprintln!("unable to get path to home directory");
-            panic!("USE CUSTOM ERROR");
-        };
-
-        Ok(root)
-    }
-
-    pub fn dir(dir_name: impl AsRef<Path>) -> Result<PathBuf> {
-        let root = Self::root().context("loading root path")?;
-        let dir = root.join(dir_name);
-
-        if !dir.exists() {
-            std::fs::create_dir_all(&dir)
-                .with_context(|| format!("creating dir {}", dir.display()))?;
-        }
-
-        Ok(dir)
-    }
-
-    pub fn file(filename: impl AsRef<Path>) -> Result<PathBuf> {
-        let root = Self::root().context("loading root path")?;
-        let file = root.join(filename);
-
-        Ok(file)
-    }
-}
-
 #[derive(Deserialize, Serialize)]
 pub struct MoxenConfig {
     pub api_key: String,
@@ -148,6 +121,7 @@ impl MoxenConfig {
             AddonInstallPath(PathBuf::from(install_input.trim()))
         };
 
+        assert!(install_dir.0.exists());
         let cfg = MoxenConfig {
             api_key,
             version: GameVersion::default(),
@@ -170,6 +144,90 @@ impl MoxenConfig {
         let cfg_path = MoxenPath::file("config.toml")?;
         let content = toml::to_string_pretty(&self).context("serialising config")?;
         std::fs::write(&cfg_path, &content).context("writing out config file")?;
+
+        Ok(())
+    }
+}
+
+pub mod path {
+    use anyhow::{Context, Result};
+    use std::path::{Path, PathBuf};
+    use zip::ZipArchive;
+
+    pub struct MoxenPath;
+
+    impl MoxenPath {
+        pub fn root() -> Result<PathBuf> {
+            let Some(root) = dotstore::home_store("moxen").context("initialising home store")?
+            else {
+                eprintln!("unable to get path to home directory");
+                panic!("USE CUSTOM ERROR");
+            };
+
+            Ok(root)
+        }
+
+        pub fn dir(dir_name: impl AsRef<Path>) -> Result<PathBuf> {
+            let root = Self::root().context("loading root path")?;
+            let dir = root.join(dir_name);
+
+            if !dir.exists() {
+                std::fs::create_dir_all(&dir)
+                    .with_context(|| format!("creating dir {}", dir.display()))?;
+            }
+
+            Ok(dir)
+        }
+
+        pub fn file(filename: impl AsRef<Path>) -> Result<PathBuf> {
+            let root = Self::root().context("loading root path")?;
+            let file = root.join(filename);
+
+            Ok(file)
+        }
+    }
+
+    pub fn unzip_archive(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+        let file = std::fs::File::open(&src)
+            .with_context(|| format!("opening zip archive: {}", src.as_ref().display()))?;
+
+        let mut archive = ZipArchive::new(file).context("initialising ZipArchive")?;
+
+        for idx in 0..archive.len() {
+            let mut entry = archive.by_index(idx).context("retrieving zip entry")?;
+            let Some(entry_path) = entry.enclosed_name() else {
+                continue;
+            };
+
+            let dst_path = dst.as_ref().join(entry_path);
+
+            if entry.is_dir() {
+                std::fs::create_dir_all(&dst_path).with_context(|| {
+                    format!("creating sub-dir for zip entry - {}", dst_path.display())
+                })?;
+            } else {
+                if let Some(parent) = dst_path.parent() {
+                    std::fs::create_dir_all(parent).with_context(|| {
+                        format!(
+                            "creating parent directory {} for {}",
+                            parent.display(),
+                            dst_path.display()
+                        )
+                    })?;
+                }
+
+                let mut output = std::fs::File::create(&dst_path)
+                    .with_context(|| format!("creating file {}", dst_path.display()))?;
+
+                std::io::copy(&mut entry, &mut output).with_context(|| {
+                    format!(
+                        "copying {:?} to {}",
+                        entry.enclosed_name(),
+                        dst_path.display()
+                    )
+                })?;
+            }
+        }
 
         Ok(())
     }

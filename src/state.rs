@@ -6,7 +6,8 @@ use crate::{
     addon::Addon,
     api::CurseClient,
     store::{
-        GameVersion, MoxenConfig, MoxenPath,
+        GameVersion, MoxenConfig,
+        path::{MoxenPath, unzip_archive},
         registry::{self, MoxenRegistry},
     },
 };
@@ -70,6 +71,7 @@ impl MoxenApp {
     }
 
     pub async fn update_addons(&mut self) -> Result<()> {
+        println!("Checking for updates...");
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let addons = self
             .check_updates(Arc::clone(&client))
@@ -113,7 +115,41 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub fn install_addons(&self) -> Result<()> {
+    pub async fn install_addons(&mut self) -> Result<()> {
+        println!("Installing addons...");
+        self.update_addons().await.context("updating addons")?;
+        let install_dir = self.config.install_dir.addon_dir(&self.config.version);
+
+        // DEBUG ONLY
+        std::fs::create_dir_all(&install_dir).context("DEBUG - simulating install directory")?;
+
+        let mut js: JoinSet<Result<()>> = JoinSet::new();
+        for addon in self.registry.values() {
+            let addon = addon.clone();
+            let install_dir = install_dir.clone();
+
+            js.spawn_blocking(move || {
+                println!("Installing {}...", addon.name);
+                let file = MoxenPath::file(format!(
+                    "registry/cache/{}/{}",
+                    addon.slug, addon.main_file.file_name
+                ))
+                .context("loading cache path")?;
+
+                unzip_archive(&file, &install_dir)
+                    .with_context(|| format!("unzipping {}", file.display()))?;
+
+                Ok(())
+            });
+        }
+
+        js.join_all().await;
+        println!("Install complete!");
+
+        Ok(())
+    }
+
+    pub async fn uninstall_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
         Ok(())
     }
 

@@ -41,4 +41,10 @@ pub enum MoxenCommand {
 
     /// Install the addons in the WoW directory
     Install,
+
+    /// Uninstall the selected Addons
+    Uninstall {
+        /// Addon IDs to remove
+        mod_ids: Vec<i32>,
+    },
 }
