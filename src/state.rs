@@ -150,6 +150,33 @@ impl MoxenApp {
     }
 
     pub async fn uninstall_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
+        for id in mod_ids {
+            let Some(addon) = self.registry.get(&id) else {
+                eprintln!("No such addon: {}", id);
+                continue;
+            };
+
+            println!("Removing addon {}...", addon.name);
+            let cache_dir = MoxenPath::dir("registry/cache").context("loading cache dir")?;
+            let addon_dir = cache_dir.join(addon.slug.clone());
+            if addon_dir.exists() {
+                std::fs::remove_dir_all(&addon_dir)
+                    .with_context(|| format!("removing cached dir {}", addon_dir.display()))?;
+            }
+
+            let src_dir = self.config.install_dir.addon_dir(&self.config.version);
+            for module in addon.main_file.modules.iter() {
+                let mod_path = src_dir.join(module);
+                std::fs::remove_dir_all(&mod_path)
+                    .with_context(|| format!("removing module {}", mod_path.display()))?;
+            }
+
+            self.registry.remove(&id);
+        }
+
+        self.save().context("removal - saving registry")?;
+        println!("Successfully removed addons!");
+
         Ok(())
     }
 
