@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
@@ -7,7 +10,20 @@ use std::collections::HashMap;
 
 use crate::addon::Addon;
 
-// TODO: Custom error handling
+#[derive(Deserialize, Serialize)]
+pub struct AddonInstallPath(PathBuf);
+
+impl std::fmt::Display for AddonInstallPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.display())
+    }
+}
+
+impl Default for AddonInstallPath {
+    fn default() -> Self {
+        Self(MoxenPath::root().expect("this is for testing"))
+    }
+}
 
 const VERSIONS: [GameVersion; 4] = [
     GameVersion::Retail,
@@ -93,6 +109,7 @@ impl MoxenPath {
 pub struct MoxenConfig {
     pub api_key: String,
     pub version: GameVersion,
+    pub install_dir: AddonInstallPath,
 }
 
 impl MoxenConfig {
@@ -115,9 +132,26 @@ impl MoxenConfig {
         let api_key =
             rpassword::prompt_password("Enter Curseforge API Key: ").context("reading password")?;
 
+        print!(
+            "Enter World of Warcraft install directory (default is \"{}\"): ",
+            AddonInstallPath::default()
+        );
+        std::io::stdout().flush().context("flushing stdout")?;
+        let mut install_input = String::new();
+        std::io::stdin()
+            .read_line(&mut install_input)
+            .context("reading user input")?;
+
+        let install_dir = if install_input.trim().is_empty() {
+            AddonInstallPath::default()
+        } else {
+            AddonInstallPath(PathBuf::from(install_input.trim()))
+        };
+
         let cfg = MoxenConfig {
             api_key,
             version: GameVersion::default(),
+            install_dir,
         };
 
         let content = toml::to_string_pretty(&cfg).context("serialising config")?;
