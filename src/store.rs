@@ -28,7 +28,7 @@ pub enum GameVersion {
 
 impl GameVersion {
     pub fn registry_path(&self) -> Result<PathBuf> {
-        let registry = load_path("registry").context("loading registry path")?;
+        let registry = MoxenPath::dir("registry").context("loading registry path")?;
         if !registry.exists() {
             std::fs::create_dir_all(&registry).context("creating registry dir")?;
         }
@@ -57,6 +57,38 @@ impl std::fmt::Display for GameVersion {
     }
 }
 
+pub struct MoxenPath;
+
+impl MoxenPath {
+    pub fn root() -> Result<PathBuf> {
+        let Some(root) = dotstore::home_store("moxen").context("initialising home store")? else {
+            eprintln!("unable to get path to home directory");
+            panic!("USE CUSTOM ERROR");
+        };
+
+        Ok(root)
+    }
+
+    pub fn dir(dir_name: impl AsRef<Path>) -> Result<PathBuf> {
+        let root = Self::root().context("loading root path")?;
+        let dir = root.join(dir_name);
+
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir)
+                .with_context(|| format!("creating dir {}", dir.display()))?;
+        }
+
+        Ok(dir)
+    }
+
+    pub fn file(filename: impl AsRef<Path>) -> Result<PathBuf> {
+        let root = Self::root().context("loading root path")?;
+        let file = root.join(filename);
+
+        Ok(file)
+    }
+}
+
 #[derive(Deserialize, Serialize)]
 pub struct MoxenConfig {
     pub api_key: String,
@@ -65,12 +97,13 @@ pub struct MoxenConfig {
 
 impl MoxenConfig {
     pub fn is_initialised() -> Result<bool> {
-        let cfg_path = load_path("config.toml").context("config file path")?;
+        let cfg_path = MoxenPath::file("config.toml").context("config file path")?;
         let registries_exist = VERSIONS.iter().all(|version| {
             let path = version
                 .registry_path()
                 .context("loading registry path")
                 .expect("error loading path");
+
             path.exists()
         });
 
@@ -78,7 +111,7 @@ impl MoxenConfig {
     }
 
     pub fn initialise() -> Result<()> {
-        let cfg_path = load_path("config.toml")?;
+        let cfg_path = MoxenPath::file("config.toml")?;
         let api_key =
             rpassword::prompt_password("Enter Curseforge API Key: ").context("reading password")?;
 
@@ -94,34 +127,18 @@ impl MoxenConfig {
     }
 
     pub fn load() -> Result<Self> {
-        let cfg_path = load_path("config.toml")?;
+        let cfg_path = MoxenPath::file("config.toml")?;
         let content = std::fs::read_to_string(&cfg_path).context("reading config file")?;
         toml::from_str(&content).context("deserialising config")
     }
 
     pub fn save(&self) -> Result<()> {
-        let cfg_path = load_path("config.toml")?;
+        let cfg_path = MoxenPath::file("config.toml")?;
         let content = toml::to_string_pretty(&self).context("serialising config")?;
         std::fs::write(&cfg_path, &content).context("writing out config file")?;
 
         Ok(())
     }
-}
-
-pub fn root_path() -> Result<PathBuf> {
-    let Some(root) = dotstore::home_store("moxen").context("initialising home store")? else {
-        eprintln!("unable to get path to home directory");
-        panic!("USE CUSTOM ERROR");
-    };
-
-    Ok(root)
-}
-
-pub fn load_path(path: impl AsRef<Path>) -> Result<PathBuf> {
-    let root = root_path().context("loading home store directory")?;
-    let path = root.join(path);
-
-    Ok(path)
 }
 
 pub mod registry {

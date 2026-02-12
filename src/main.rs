@@ -25,24 +25,24 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    let mut state = MoxenApp::new().context("loading application")?;
     match cli.command {
         MoxenCommand::List => {
-            let state = MoxenApp::new().context("listing registry contents")?;
             state.list_contents();
         }
         MoxenCommand::Track { mod_ids } => {
-            let mut state = MoxenApp::new().context("tracking addons - loading state")?;
             state.track_addons(mod_ids.clone()).await?;
         }
         MoxenCommand::Update => {
-            let state = MoxenApp::new().context("update registry")?;
             state.update_addons().await.context("updating addons")?;
         }
         MoxenCommand::Switch { registry } => {
-            let mut state = MoxenApp::new().context("switching game version - loading state")?;
             state
                 .switch_game_version(registry)
                 .context("switching game version")?;
+        }
+        MoxenCommand::ClearCache => {
+            state.clear_cache().context("clearing cache")?;
         }
         _ => unreachable!("covered above"),
     }

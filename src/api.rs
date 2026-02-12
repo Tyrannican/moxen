@@ -31,13 +31,15 @@ impl CurseClient {
             .context("converting to text")
     }
 
-    pub async fn download_addon(&self, addon: &Addon) -> Result<()> {
+    pub async fn download_addon(&self, addon: &Addon) -> Result<Vec<u8>> {
         let url = if let Some(ref url) = addon.main_file.download_url {
             url
         } else {
             &format!(
-                "https://curseforge.com/wow/addons/{}/{}",
-                addon.slug, addon.main_file.id
+                "https://edge.forgecdn.net/files/{}/{}/{}",
+                addon.main_file.id / 1000,
+                addon.main_file.id % 1000,
+                addon.main_file.file_name
             )
         };
 
@@ -49,10 +51,9 @@ impl CurseClient {
             .with_context(|| format!("calling download url for {}: {}", addon.name, url))?
             .bytes()
             .await
-            .context("getting content bytes")?;
+            .context("getting content bytes")?
+            .to_vec();
 
-        println!("I have something: {}", content.len());
-
-        todo!()
+        Ok(content)
     }
 }

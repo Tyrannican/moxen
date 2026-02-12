@@ -24,7 +24,7 @@ pub enum MoxenCommand {
         mod_ids: Vec<i32>,
     },
 
-    /// Switch registry to use
+    /// Switch registry to use (retail, ptr, beta, classic)
     Switch {
         /// Game version to use
         registry: GameVersion,
@@ -32,6 +32,9 @@ pub enum MoxenCommand {
 
     /// List tracked addons in the registry
     List,
+
+    /// Clear the Moxen file cache
+    ClearCache,
 
     /// Download the latest version of the addon(s)
     Update,
