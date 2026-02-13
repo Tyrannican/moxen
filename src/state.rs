@@ -61,7 +61,10 @@ impl MoxenApp {
         }
 
         while let Some(addon) = js.join_next().await {
-            let addon = addon??;
+            let addon = addon
+                .context("joining track task")?
+                .context("track task result")?;
+
             if self.registry.get(&addon.id).is_none() {
                 println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
                 self.add_registry_item(addon);
@@ -121,7 +124,12 @@ impl MoxenApp {
             });
         }
 
-        js.join_all().await;
+        while let Some(result) = js.join_next().await {
+            let _ = result
+                .context("joining update task")?
+                .context("update task result")?;
+        }
+
         self.save().context("saving registry after update")?;
         println!("Update complete!");
 
@@ -132,8 +140,11 @@ impl MoxenApp {
         self.update_addons().await.context("updating addons")?;
         let install_dir = self.config.install_dir.addon_dir(&self.config.version);
 
-        // DEBUG ONLY
-        std::fs::create_dir_all(&install_dir).context("DEBUG - simulating install directory")?;
+        // Debug install dir for testing
+        if cfg!(target_os = "linux") {
+            std::fs::create_dir_all(&install_dir)
+                .context("DEBUG - simulating install directory")?;
+        }
 
         println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
@@ -161,7 +172,12 @@ impl MoxenApp {
             });
         }
 
-        js.join_all().await;
+        while let Some(result) = js.join_next().await {
+            let _ = result
+                .context("joining install task")?
+                .context("install task result")?;
+        }
+
         println!("Install complete!");
 
         Ok(())
@@ -169,37 +185,49 @@ impl MoxenApp {
 
     pub async fn uninstall_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
         let mut js: JoinSet<Result<()>> = JoinSet::new();
+        let src_dir = self.config.install_dir.addon_dir(&self.config.version);
+
         for id in mod_ids {
             let Some(addon) = self.remove_registry_item(id) else {
                 eprintln!("No such addon: {}", id);
                 continue;
             };
 
+            let src_dir = src_dir.clone();
             println!("Removing addon {}...", addon.name);
-            js.spawn(async move { Ok(()) });
-            let cache_dir = MoxenPath::new()
-                .context("loading root moxen path")?
-                .dir("registry")
-                .context("loading registry path")?
-                .dir("cache")
-                .context("loading cache path")?
-                .build();
+            js.spawn(async move {
+                let cache_dir = MoxenPath::new()
+                    .context("loading root moxen path")?
+                    .dir("registry")
+                    .context("loading registry path")?
+                    .dir("cache")
+                    .context("loading cache path")?
+                    .build();
 
-            let addon_dir = cache_dir.join(addon.slug.clone());
-            if addon_dir.exists() {
-                std::fs::remove_dir_all(&addon_dir)
-                    .with_context(|| format!("removing cached dir {}", addon_dir.display()))?;
-            }
+                let addon_dir = cache_dir.join(addon.slug.clone());
+                if addon_dir.exists() {
+                    tokio::fs::remove_dir_all(&addon_dir)
+                        .await
+                        .with_context(|| format!("removing cached dir {}", addon_dir.display()))?;
+                }
 
-            let src_dir = self.config.install_dir.addon_dir(&self.config.version);
-            for module in addon.main_file.modules.iter() {
-                let mod_path = src_dir.join(module);
-                std::fs::remove_dir_all(&mod_path)
-                    .with_context(|| format!("removing module {}", mod_path.display()))?;
-            }
+                for module in addon.main_file.modules.iter() {
+                    let mod_path = src_dir.join(module);
+                    tokio::fs::remove_dir_all(&mod_path)
+                        .await
+                        .with_context(|| format!("removing module {}", mod_path.display()))?;
+                }
+
+                Ok(())
+            });
         }
 
-        js.join_all().await;
+        while let Some(result) = js.join_next().await {
+            let _ = result
+                .context("joining removal task")?
+                .context("removal task result")?;
+        }
+
         self.save().context("removal - saving registry")?;
         println!("Successfully removed addons!");
 
@@ -231,7 +259,10 @@ impl MoxenApp {
         }
 
         while let Some(addon) = js.join_next().await {
-            let addon = addon??;
+            let addon = addon
+                .context("joining check update task")?
+                .context("check update result")?;
+
             let reg_addon = self
                 .registry
                 .get(&addon.id)
