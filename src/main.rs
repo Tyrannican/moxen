@@ -1,16 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use moxen::{Cli, MoxenCommand, state::MoxenApp, store::MoxenConfig};
-
-fn is_initialised() -> Result<bool> {
-    if !MoxenConfig::is_initialised().context("checking moxen initialisation from config")? {
-        eprintln!("you must initialise the Moxen app with `moxen init` first");
-        return Ok(false);
-    }
-
-    Ok(true)
-}
+use moxen::{Cli, MoxenCommand, is_initialised, state::MoxenApp};
 
 #[tokio::main]
 async fn main() -> Result<()> {
