@@ -65,7 +65,7 @@ impl MoxenApp {
                 .context("joining track task")?
                 .context("track task result")?;
 
-            if self.registry.get(&addon.id).is_none() {
+            if !self.registry.contains_key(&addon.id) {
                 println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
                 self.add_registry_item(addon);
             } else {
@@ -125,7 +125,7 @@ impl MoxenApp {
         }
 
         while let Some(result) = js.join_next().await {
-            let _ = result
+            result
                 .context("joining update task")?
                 .context("update task result")?;
         }
@@ -173,7 +173,7 @@ impl MoxenApp {
         }
 
         while let Some(result) = js.join_next().await {
-            let _ = result
+            result
                 .context("joining install task")?
                 .context("install task result")?;
         }
@@ -223,7 +223,7 @@ impl MoxenApp {
         }
 
         while let Some(result) = js.join_next().await {
-            let _ = result
+            result
                 .context("joining removal task")?
                 .context("removal task result")?;
         }
@@ -252,9 +252,9 @@ impl MoxenApp {
     async fn check_updates(&self, client: Arc<CurseClient>) -> Result<Vec<Addon>> {
         let mut to_update = Vec::new();
         let mut js: JoinSet<Result<Addon>> = JoinSet::new();
-        for aid in self.registry.keys() {
+        let addon_ids: Vec<i32> = self.registry.keys().copied().collect();
+        for aid in addon_ids {
             let client = Arc::clone(&client);
-            let aid = aid.clone();
             js.spawn(async move { client.get_addon(aid).await });
         }
 
