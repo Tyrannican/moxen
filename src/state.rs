@@ -62,8 +62,12 @@ impl MoxenApp {
 
         while let Some(addon) = js.join_next().await {
             let addon = addon??;
-            println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
-            self.add_registry_item(addon);
+            if self.registry.get(&addon.id).is_none() {
+                println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
+                self.add_registry_item(addon);
+            } else {
+                println!("Already tracking \"{}\" ({})", addon.name, addon.id);
+            }
         }
 
         self.save().context("tracking addons")?;
@@ -97,8 +101,15 @@ impl MoxenApp {
                     .await
                     .with_context(|| format!("downloading latest version of {}", addon.name))?;
 
-                let cache_path = MoxenPath::dir(format!("registry/cache/{}", addon.slug))
-                    .context("constructing cache path")?;
+                let cache_path = MoxenPath::new()
+                    .context("loading root moxen path")?
+                    .dir("registry")
+                    .context("loading registry path")?
+                    .dir("cache")
+                    .context("loading cache path")?
+                    .dir(&addon.slug)
+                    .with_context(|| format!("loading {} path", addon.slug))?
+                    .build();
 
                 let filename = cache_path.join(addon.main_file.file_name);
 
@@ -118,13 +129,13 @@ impl MoxenApp {
     }
 
     pub async fn install_addons(&mut self) -> Result<()> {
-        println!("Installing addons...");
         self.update_addons().await.context("updating addons")?;
         let install_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         // DEBUG ONLY
         std::fs::create_dir_all(&install_dir).context("DEBUG - simulating install directory")?;
 
+        println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
         for addon in self.registry.values() {
             let addon = addon.clone();
@@ -132,11 +143,16 @@ impl MoxenApp {
 
             js.spawn_blocking(move || {
                 println!("Installing {}...", addon.name);
-                let file = MoxenPath::file(format!(
-                    "registry/cache/{}/{}",
-                    addon.slug, addon.main_file.file_name
-                ))
-                .context("loading cache path")?;
+                let file = MoxenPath::new()
+                    .context("loading root moxen path")?
+                    .dir("registry")
+                    .context("loading registry path")?
+                    .dir("cache")
+                    .context("loading cache path")?
+                    .dir(&addon.slug)
+                    .with_context(|| format!("loading {} path", addon.slug))?
+                    .file(&addon.main_file.file_name)
+                    .build();
 
                 unzip_archive(&file, &install_dir)
                     .with_context(|| format!("unzipping {}", file.display()))?;
@@ -161,7 +177,14 @@ impl MoxenApp {
 
             println!("Removing addon {}...", addon.name);
             js.spawn(async move { Ok(()) });
-            let cache_dir = MoxenPath::dir("registry/cache").context("loading cache dir")?;
+            let cache_dir = MoxenPath::new()
+                .context("loading root moxen path")?
+                .dir("registry")
+                .context("loading registry path")?
+                .dir("cache")
+                .context("loading cache path")?
+                .build();
+
             let addon_dir = cache_dir.join(addon.slug.clone());
             if addon_dir.exists() {
                 std::fs::remove_dir_all(&addon_dir)
@@ -184,7 +207,14 @@ impl MoxenApp {
     }
 
     pub fn clear_cache(&self) -> Result<()> {
-        let cache = MoxenPath::dir("registry/cache").context("loading cache path")?;
+        let cache = MoxenPath::new()
+            .context("loading root moxen path")?
+            .dir("registry")
+            .context("loading registry path")?
+            .dir("cache")
+            .context("loading cache path")?
+            .build();
+
         std::fs::remove_dir_all(cache).context("removing cache dir")?;
         println!("Cleared Moxen cache.");
 
@@ -207,8 +237,15 @@ impl MoxenApp {
                 .get(&addon.id)
                 .expect("this has to be present at this point");
 
-            let cache_path = MoxenPath::dir(format!("registry/cache/{}", addon.slug))
-                .context("constructing cache path")?;
+            let cache_path = MoxenPath::new()
+                .context("loading root moxen path")?
+                .dir("registry")
+                .context("loading registry path")?
+                .dir("cache")
+                .context("loading cache path")?
+                .dir(&addon.slug)
+                .with_context(|| format!("loading {} path", addon.slug))?
+                .build();
 
             let filename = cache_path.join(&addon.main_file.file_name);
             if reg_addon.main_file.id != addon.main_file.id || !filename.exists() {

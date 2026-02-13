@@ -28,7 +28,13 @@ impl std::fmt::Display for AddonInstallPath {
 
 impl Default for AddonInstallPath {
     fn default() -> Self {
-        Self(MoxenPath::root().expect("this is for testing"))
+        if cfg!(windows) {
+            Self(PathBuf::from(r"C:\Program Files (x86)\World of Warcraft"))
+        } else if cfg!(target_os = "macos") {
+            Self(PathBuf::from("/Applications/World of Warcraft"))
+        } else {
+            Self(MoxenPath::new().expect("this is for testing").build())
+        }
     }
 }
 
@@ -53,10 +59,11 @@ pub enum GameVersion {
 
 impl GameVersion {
     pub fn registry_path(&self) -> Result<PathBuf> {
-        let registry = MoxenPath::dir("registry").context("loading registry path")?;
-        if !registry.exists() {
-            std::fs::create_dir_all(&registry).context("creating registry dir")?;
-        }
+        let registry = MoxenPath::new()
+            .context("loading root moxen path")?
+            .dir("registry")
+            .context("loading registry path")?
+            .build();
 
         Ok(registry.join(format!("{}.json", self)))
     }
@@ -93,7 +100,11 @@ pub struct MoxenConfig {
 
 impl MoxenConfig {
     pub fn is_initialised() -> Result<bool> {
-        let cfg_path = MoxenPath::file("config.toml").context("config file path")?;
+        let cfg_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("config.toml")
+            .build();
+
         let registries_exist = VERSIONS.iter().all(|version| {
             let path = version
                 .registry_path()
@@ -107,7 +118,11 @@ impl MoxenConfig {
     }
 
     pub fn initialise() -> Result<()> {
-        let cfg_path = MoxenPath::file("config.toml")?;
+        let cfg_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("config.toml")
+            .build();
+
         let api_key =
             rpassword::prompt_password("Enter Curseforge API Key: ").context("reading password")?;
 
@@ -141,13 +156,19 @@ impl MoxenConfig {
     }
 
     pub fn load() -> Result<Self> {
-        let cfg_path = MoxenPath::file("config.toml")?;
+        let cfg_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("config.toml")
+            .build();
         let content = std::fs::read_to_string(&cfg_path).context("reading config file")?;
         toml::from_str(&content).context("deserialising config")
     }
 
     pub fn save(&self) -> Result<()> {
-        let cfg_path = MoxenPath::file("config.toml")?;
+        let cfg_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("config.toml")
+            .build();
         let content = toml::to_string_pretty(&self).context("serialising config")?;
         std::fs::write(&cfg_path, &content).context("writing out config file")?;
 
@@ -175,7 +196,7 @@ pub mod path {
             Ok(Self { path: root })
         }
 
-        pub fn dirt(mut self, dir: impl AsRef<Path>) -> Result<Self> {
+        pub fn dir(mut self, dir: impl AsRef<Path>) -> Result<Self> {
             self.path = self.path.join(dir);
             if !self.path.exists() {
                 std::fs::create_dir_all(&self.path)
@@ -185,42 +206,13 @@ pub mod path {
             Ok(self)
         }
 
-        pub fn filet(mut self, filename: impl AsRef<Path>) -> Self {
+        pub fn file(mut self, filename: impl AsRef<Path>) -> Self {
             self.path = self.path.join(filename);
             self
         }
 
         pub fn build(self) -> PathBuf {
             self.path
-        }
-
-        pub fn root() -> Result<PathBuf> {
-            let Some(root) = dotstore::home_store("moxen").context("initialising home store")?
-            else {
-                eprintln!("unable to get path to home directory");
-                panic!("USE CUSTOM ERROR");
-            };
-
-            Ok(root)
-        }
-
-        pub fn dir(dir_name: impl AsRef<Path>) -> Result<PathBuf> {
-            let root = Self::root().context("loading root path")?;
-            let dir = root.join(dir_name);
-
-            if !dir.exists() {
-                std::fs::create_dir_all(&dir)
-                    .with_context(|| format!("creating dir {}", dir.display()))?;
-            }
-
-            Ok(dir)
-        }
-
-        pub fn file(filename: impl AsRef<Path>) -> Result<PathBuf> {
-            let root = Self::root().context("loading root path")?;
-            let file = root.join(filename);
-
-            Ok(file)
         }
     }
 
