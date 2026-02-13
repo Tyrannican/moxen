@@ -35,7 +35,7 @@ impl MoxenApp {
     pub fn switch_game_version(&mut self, version: GameVersion) -> Result<()> {
         self.config.version = version;
         self.config.save().context("saving config file")?;
-        println!("Switched game version to {version}");
+        println!("Switched game version to '{version}'");
 
         Ok(())
     }
@@ -99,9 +99,11 @@ impl MoxenApp {
 
                 let cache_path = MoxenPath::dir(format!("registry/cache/{}", addon.slug))
                     .context("constructing cache path")?;
+
                 let filename = cache_path.join(addon.main_file.file_name);
 
-                std::fs::write(filename, &content)
+                tokio::fs::write(filename, &content)
+                    .await
                     .with_context(|| format!("writing out {} to cache", addon.name))?;
 
                 Ok(())
@@ -194,10 +196,7 @@ impl MoxenApp {
         for aid in self.registry.keys() {
             let client = Arc::clone(&client);
             let aid = aid.clone();
-            js.spawn(async move {
-                let addon = client.get_addon(aid).await?;
-                Ok(addon)
-            });
+            js.spawn(async move { client.get_addon(aid).await });
         }
 
         while let Some(addon) = js.join_next().await {
@@ -228,8 +227,6 @@ impl MoxenApp {
     }
 
     fn save(&self) -> Result<()> {
-        registry::save(&self.registry, &self.config.version).context("saving state - registry")?;
-
-        Ok(())
+        registry::save(&self.registry, &self.config.version).context("saving state - registry")
     }
 }

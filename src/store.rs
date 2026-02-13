@@ -14,7 +14,7 @@ pub struct AddonInstallPath(pub PathBuf);
 impl AddonInstallPath {
     pub fn addon_dir(&self, version: &GameVersion) -> PathBuf {
         self.0
-            .join(format!("{}/Interface/Addons", version.suffix()))
+            .join(format!("{}/Interface/AddOns", version.suffix()))
     }
 }
 
@@ -30,11 +30,12 @@ impl Default for AddonInstallPath {
     }
 }
 
-const VERSIONS: [GameVersion; 4] = [
+const VERSIONS: [GameVersion; 5] = [
     GameVersion::Retail,
     GameVersion::Beta,
     GameVersion::Ptr,
     GameVersion::Classic,
+    GameVersion::ClassicEra,
 ];
 
 #[derive(Deserialize, Serialize, Default, Debug, PartialEq, Eq, Copy, Clone, ValueEnum)]
@@ -45,6 +46,7 @@ pub enum GameVersion {
     Beta,
     Ptr,
     Classic,
+    ClassicEra,
 }
 
 impl GameVersion {
@@ -63,6 +65,7 @@ impl GameVersion {
             Self::Beta => "_beta_".to_string(),
             Self::Ptr => "_ptr_".to_string(),
             Self::Classic => "_classic_".to_string(),
+            Self::ClassicEra => "_classic_era_".to_string(),
         }
     }
 }
@@ -73,6 +76,7 @@ impl std::fmt::Display for GameVersion {
             Self::Retail => write!(f, "retail"),
             Self::Beta => write!(f, "beta"),
             Self::Classic => write!(f, "classic"),
+            Self::ClassicEra => write!(f, "classic_era"),
             Self::Ptr => write!(f, "ptr"),
         }
     }

@@ -21,7 +21,7 @@ pub enum MoxenCommand {
     /// Track new addons in the registry
     Track {
         /// List of Addon IDs to track (Project IDs from Curseforge)
-        mod_ids: Vec<i32>,
+        addon_ids: Vec<i32>,
     },
 
     /// Switch registry to use (retail, ptr, beta, classic)
@@ -45,6 +45,6 @@ pub enum MoxenCommand {
     /// Uninstall the selected Addons
     Uninstall {
         /// Addon IDs to remove
-        mod_ids: Vec<i32>,
+        addon_ids: Vec<i32>,
     },
 }

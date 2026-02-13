@@ -4,7 +4,7 @@ use clap::Parser;
 use moxen::{Cli, MoxenCommand, state::MoxenApp, store::MoxenConfig};
 
 fn is_initialised() -> Result<bool> {
-    if !MoxenConfig::is_initialised()? {
+    if !MoxenConfig::is_initialised().context("checking moxen initialisation from config")? {
         eprintln!("you must initialise the Moxen app with `moxen init` first");
         return Ok(false);
     }
@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    if !is_initialised()? {
+    if !is_initialised().context("initialisation")? {
         return Ok(());
     }
 
@@ -29,29 +29,22 @@ async fn main() -> Result<()> {
     match cli.command {
         MoxenCommand::List => {
             state.list_contents();
+            Ok(())
         }
-        MoxenCommand::Track { mod_ids } => {
-            state.track_addons(mod_ids).await?;
-        }
-        MoxenCommand::Update => {
-            state.update_addons().await.context("updating addons")?;
-        }
-        MoxenCommand::Switch { registry } => {
-            state
-                .switch_game_version(registry)
-                .context("switching game version")?;
-        }
-        MoxenCommand::ClearCache => {
-            state.clear_cache().context("clearing cache")?;
-        }
-        MoxenCommand::Install => {
-            state.install_addons().await.context("installing addons")?;
-        }
-        MoxenCommand::Uninstall { mod_ids } => {
-            state.uninstall_addons(mod_ids).await?;
-        }
-        _ => unreachable!("covered above"),
+        MoxenCommand::Track { addon_ids } => state
+            .track_addons(addon_ids)
+            .await
+            .context("tracking addons"),
+        MoxenCommand::Update => state.update_addons().await.context("updating addons"),
+        MoxenCommand::Switch { registry } => state
+            .switch_game_version(registry)
+            .context("switching game version"),
+        MoxenCommand::ClearCache => state.clear_cache().context("clearing cache"),
+        MoxenCommand::Install => state.install_addons().await.context("installing addons"),
+        MoxenCommand::Uninstall { addon_ids } => state
+            .uninstall_addons(addon_ids)
+            .await
+            .context("uninstalling addons"),
+        MoxenCommand::Init => unreachable!("this is covered above"),
     }
-
-    Ok(())
 }
