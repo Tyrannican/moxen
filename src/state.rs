@@ -152,13 +152,15 @@ impl MoxenApp {
     }
 
     pub async fn uninstall_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
+        let mut js: JoinSet<Result<()>> = JoinSet::new();
         for id in mod_ids {
-            let Some(addon) = self.registry.get(&id) else {
+            let Some(addon) = self.remove_registry_item(id) else {
                 eprintln!("No such addon: {}", id);
                 continue;
             };
 
             println!("Removing addon {}...", addon.name);
+            js.spawn(async move { Ok(()) });
             let cache_dir = MoxenPath::dir("registry/cache").context("loading cache dir")?;
             let addon_dir = cache_dir.join(addon.slug.clone());
             if addon_dir.exists() {
@@ -172,10 +174,9 @@ impl MoxenApp {
                 std::fs::remove_dir_all(&mod_path)
                     .with_context(|| format!("removing module {}", mod_path.display()))?;
             }
-
-            self.remove_registry_item(id);
         }
 
+        js.join_all().await;
         self.save().context("removal - saving registry")?;
         println!("Successfully removed addons!");
 
@@ -222,8 +223,8 @@ impl MoxenApp {
         self.registry.insert(addon.id, addon);
     }
 
-    fn remove_registry_item(&mut self, id: i32) {
-        self.registry.remove(&id);
+    fn remove_registry_item(&mut self, id: i32) -> Option<Addon> {
+        self.registry.remove(&id)
     }
 
     fn save(&self) -> Result<()> {

@@ -14,7 +14,9 @@ pub struct AddonInstallPath(pub PathBuf);
 impl AddonInstallPath {
     pub fn addon_dir(&self, version: &GameVersion) -> PathBuf {
         self.0
-            .join(format!("{}/Interface/AddOns", version.suffix()))
+            .join(version.suffix())
+            .join("Interface")
+            .join("AddOns")
     }
 }
 
@@ -158,9 +160,40 @@ pub mod path {
     use std::path::{Path, PathBuf};
     use zip::ZipArchive;
 
-    pub struct MoxenPath;
+    pub struct MoxenPath {
+        path: PathBuf,
+    }
 
     impl MoxenPath {
+        pub fn new() -> Result<Self> {
+            let Some(root) = dotstore::home_store("moxen").context("initialising home store")?
+            else {
+                eprintln!("unable to get path to home directory");
+                anyhow::bail!("error getting home directory path");
+            };
+
+            Ok(Self { path: root })
+        }
+
+        pub fn dirt(mut self, dir: impl AsRef<Path>) -> Result<Self> {
+            self.path = self.path.join(dir);
+            if !self.path.exists() {
+                std::fs::create_dir_all(&self.path)
+                    .with_context(|| format!("creating directory '{}'", self.path.display()))?;
+            }
+
+            Ok(self)
+        }
+
+        pub fn filet(mut self, filename: impl AsRef<Path>) -> Self {
+            self.path = self.path.join(filename);
+            self
+        }
+
+        pub fn build(self) -> PathBuf {
+            self.path
+        }
+
         pub fn root() -> Result<PathBuf> {
             let Some(root) = dotstore::home_store("moxen").context("initialising home store")?
             else {
