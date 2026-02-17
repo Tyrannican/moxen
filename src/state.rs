@@ -19,8 +19,11 @@ pub struct MoxenApp {
 
 impl MoxenApp {
     pub fn initialise() -> Result<()> {
+        println!("Initialising Moxen...\n");
         registry::initialise().context("moxen initialise - registry")?;
         MoxenConfig::initialise().context("moxen initialise - config")?;
+
+        println!("Successfully initialised Moxen!");
         Ok(())
     }
 
