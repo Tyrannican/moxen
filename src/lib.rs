@@ -9,6 +9,9 @@ use clap::{Parser, Subcommand};
 use crate::store::GameVersion;
 
 #[derive(Debug, Parser)]
+#[command(author, version)]
+#[command(propagate_version = true)]
+#[command(about = "CLI for installing World of Warcraft addons via CurseForge", long_about = None)]
 pub struct Cli {
     #[clap(subcommand)]
     pub command: MoxenCommand,
@@ -25,7 +28,7 @@ pub enum MoxenCommand {
         addon_ids: Vec<i32>,
     },
 
-    /// Switch registry to use (retail, ptr, beta, classic)
+    /// Switch registry to use (retail, ptr, beta, classic, classic-era)
     Switch {
         /// Game version to use
         registry: GameVersion,
