@@ -80,7 +80,7 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn update_addons(&mut self) -> Result<()> {
+    pub async fn update_addons(&mut self) -> Result<bool> {
         println!("Checking for updates...");
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let addons = self
@@ -90,7 +90,7 @@ impl MoxenApp {
 
         if addons.is_empty() {
             println!("No updates required.");
-            return Ok(());
+            return Ok(false);
         }
 
         println!("Updating {} addons...", addons.len());
@@ -136,11 +136,15 @@ impl MoxenApp {
         self.save().context("saving registry after update")?;
         println!("Update complete!");
 
-        Ok(())
+        Ok(true)
     }
 
     pub async fn install_addons(&mut self) -> Result<()> {
-        self.update_addons().await.context("updating addons")?;
+        let updated = self.update_addons().await.context("updating addons")?;
+        if !updated {
+            return Ok(());
+        }
+
         let install_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         // Debug install dir for testing
