@@ -26,7 +26,10 @@ async fn main() -> Result<()> {
             .track_addons(addon_ids)
             .await
             .context("tracking addons"),
-        MoxenCommand::Update => state.update_addons().await.context("updating addons"),
+        MoxenCommand::Update => {
+            state.update_addons().await.context("updating addons")?;
+            Ok(())
+        }
         MoxenCommand::Switch { registry } => state
             .switch_game_version(registry)
             .context("switching game version"),
