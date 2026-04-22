@@ -80,8 +80,9 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn update_addons(&mut self) -> Result<bool> {
+    pub async fn update_addons(&mut self) -> Result<Vec<i32>> {
         println!("Checking for updates...");
+        let mut updated_addons = Vec::new();
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let addons = self
             .check_updates(Arc::clone(&client))
@@ -90,12 +91,12 @@ impl MoxenApp {
 
         if addons.is_empty() {
             println!("No updates required.");
-            return Ok(false);
+            return Ok(updated_addons);
         }
 
         println!("Updating {} addons...", addons.len());
 
-        let mut js: JoinSet<Result<()>> = JoinSet::new();
+        let mut js: JoinSet<Result<i32>> = JoinSet::new();
         for addon in addons {
             self.add_registry_item(addon.clone());
 
@@ -123,25 +124,27 @@ impl MoxenApp {
                     .await
                     .with_context(|| format!("writing out {} to cache", addon.name))?;
 
-                Ok(())
+                Ok(addon.id)
             });
         }
 
         while let Some(result) = js.join_next().await {
-            result
-                .context("joining update task")?
-                .context("update task result")?;
+            updated_addons.push(
+                result
+                    .context("joining update task")?
+                    .context("update task result")?,
+            );
         }
 
         self.save().context("saving registry after update")?;
         println!("Update complete!");
 
-        Ok(true)
+        Ok(updated_addons)
     }
 
     pub async fn install_addons(&mut self) -> Result<()> {
-        let updated = self.update_addons().await.context("updating addons")?;
-        if !updated {
+        let updated_addons = self.update_addons().await.context("updating addons")?;
+        if updated_addons.is_empty() {
             return Ok(());
         }
 
@@ -155,8 +158,13 @@ impl MoxenApp {
 
         println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
-        for addon in self.registry.values() {
-            let addon = addon.clone();
+        for addon in updated_addons {
+            let addon = self
+                .registry
+                .get(&addon)
+                .expect("a valid addon is present")
+                .clone();
+
             let install_dir = install_dir.clone();
 
             js.spawn_blocking(move || {
