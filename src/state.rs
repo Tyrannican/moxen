@@ -6,7 +6,7 @@ use crate::{
     addon::Addon,
     api::CurseClient,
     store::{
-        GameVersion, MoxenConfig,
+        GameVersion, MoxenConfig, MoxenUpdateTracker,
         path::{MoxenPath, unzip_archive},
         registry::{self, MoxenRegistry},
     },
@@ -14,6 +14,7 @@ use crate::{
 
 pub struct MoxenApp {
     config: MoxenConfig,
+    update_tracker: MoxenUpdateTracker,
     registry: MoxenRegistry,
 }
 
@@ -22,6 +23,7 @@ impl MoxenApp {
         println!("Initialising Moxen...\n");
         registry::initialise().context("moxen initialise - registry")?;
         MoxenConfig::initialise().context("moxen initialise - config")?;
+        MoxenUpdateTracker::load().context("moxen initialise - update tracker")?;
 
         println!("Successfully initialised Moxen!");
         Ok(())
@@ -29,10 +31,16 @@ impl MoxenApp {
 
     pub fn new() -> Result<Self> {
         let config = MoxenConfig::load().context("moxen state creation - config")?;
+        let update_tracker =
+            MoxenUpdateTracker::load().context("moxen state creation - update tracker")?;
         let registry =
             registry::load(&config.version).context("moxen state creation - registry")?;
 
-        Ok(Self { config, registry })
+        Ok(Self {
+            config,
+            update_tracker,
+            registry,
+        })
     }
 
     pub fn switch_game_version(&mut self, version: GameVersion) -> Result<()> {
@@ -80,9 +88,8 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn update_addons(&mut self) -> Result<Vec<i32>> {
+    pub async fn update_addons(&mut self) -> Result<()> {
         println!("Checking for updates...");
-        let mut updated_addons = Vec::new();
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let addons = self
             .check_updates(Arc::clone(&client))
@@ -91,7 +98,7 @@ impl MoxenApp {
 
         if addons.is_empty() {
             println!("No updates required.");
-            return Ok(updated_addons);
+            return Ok(());
         }
 
         println!("Updating {} addons...", addons.len());
@@ -129,22 +136,23 @@ impl MoxenApp {
         }
 
         while let Some(result) = js.join_next().await {
-            updated_addons.push(
-                result
-                    .context("joining update task")?
-                    .context("update task result")?,
-            );
+            let addon_id = result
+                .context("joining update task")?
+                .context("update task result")?;
+
+            self.update_tracker.add(addon_id);
         }
 
         self.save().context("saving registry after update")?;
         println!("Update complete!");
 
-        Ok(updated_addons)
+        Ok(())
     }
 
     pub async fn install_addons(&mut self) -> Result<()> {
-        let updated_addons = self.update_addons().await.context("updating addons")?;
-        if updated_addons.is_empty() {
+        // TODO: Check the update tracker to see if there are addon IDs
+        self.update_addons().await.context("updating addons")?;
+        if self.update_tracker.is_empty() {
             return Ok(());
         }
 
@@ -158,10 +166,10 @@ impl MoxenApp {
 
         println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
-        for addon in updated_addons {
+        for addon in self.update_tracker.iter() {
             let addon = self
                 .registry
-                .get(&addon)
+                .get(addon)
                 .expect("a valid addon is present")
                 .clone();
 
@@ -194,6 +202,8 @@ impl MoxenApp {
         }
 
         println!("Install complete!");
+        self.update_tracker.clear();
+        self.save().context("saving state after install")?;
 
         Ok(())
     }
@@ -311,6 +321,7 @@ impl MoxenApp {
     }
 
     fn save(&self) -> Result<()> {
+        self.update_tracker.save()?;
         registry::save(&self.registry, &self.config.version).context("saving state - registry")
     }
 }

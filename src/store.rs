@@ -1,4 +1,8 @@
-use std::{io::Write, path::PathBuf};
+use std::{
+    collections::{HashSet, hash_set::Iter as HashSetIter},
+    io::Write,
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
@@ -173,6 +177,60 @@ impl MoxenConfig {
         std::fs::write(&cfg_path, &content).context("writing out config file")?;
 
         Ok(())
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
+pub struct MoxenUpdateTracker {
+    updated_addons: HashSet<i32>,
+}
+
+impl MoxenUpdateTracker {
+    pub fn load() -> Result<Self> {
+        let tracker_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("update_tracker.toml")
+            .build();
+
+        let tracker = if !tracker_path.exists() {
+            let tracker = MoxenUpdateTracker::default();
+            let content = toml::to_string_pretty(&tracker).context("serialising tracker")?;
+            std::fs::write(&tracker_path, &content).context("writing out update tracker file")?;
+            tracker
+        } else {
+            let content = std::fs::read_to_string(&tracker_path)?;
+            toml::from_str(&content)?
+        };
+
+        Ok(tracker)
+    }
+
+    pub fn iter(&self) -> HashSetIter<'_, i32> {
+        self.updated_addons.iter()
+    }
+
+    pub fn add(&mut self, addon: i32) {
+        self.updated_addons.insert(addon);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.updated_addons.is_empty()
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let tracker_path = MoxenPath::new()
+            .context("loading root moxen path")?
+            .file("update_tracker.toml")
+            .build();
+
+        let content = toml::to_string_pretty(&self).context("serialising tracker")?;
+        std::fs::write(&tracker_path, &content).context("writing out update tracker file")?;
+
+        Ok(())
+    }
+
+    pub fn clear(&mut self) {
+        self.updated_addons.clear()
     }
 }
 
