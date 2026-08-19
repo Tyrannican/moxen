@@ -115,17 +115,13 @@ impl MoxenApp {
                     .await
                     .with_context(|| format!("downloading latest version of {}", addon.name))?;
 
-                let cache_path = MoxenPath::new()
+                let addon_path = format!("registry/cache/{}", &addon.slug);
+                let filename = MoxenPath::new()
                     .context("loading root moxen path")?
-                    .dir("registry")
-                    .context("loading registry path")?
-                    .dir("cache")
-                    .context("loading cache path")?
-                    .dir(&addon.slug)
-                    .with_context(|| format!("loading {} path", addon.slug))?
+                    .dir(&addon_path)
+                    .with_context(|| format!("loading path {}", &addon_path))?
+                    .file(addon.main_file.file_name)
                     .build();
-
-                let filename = cache_path.join(addon.main_file.file_name);
 
                 tokio::fs::write(filename, &content)
                     .await
@@ -175,16 +171,13 @@ impl MoxenApp {
 
             let install_dir = install_dir.clone();
 
+            let cache_path = format!("registry/cache/{}", &addon.slug);
             js.spawn_blocking(move || {
                 println!("Installing {}...", addon.name);
                 let file = MoxenPath::new()
                     .context("loading root moxen path")?
-                    .dir("registry")
-                    .context("loading registry path")?
-                    .dir("cache")
-                    .context("loading cache path")?
-                    .dir(&addon.slug)
-                    .with_context(|| format!("loading {} path", addon.slug))?
+                    .dir(&cache_path)
+                    .with_context(|| format!("loading path: {}", cache_path))?
                     .file(&addon.main_file.file_name)
                     .build();
 
@@ -221,15 +214,13 @@ impl MoxenApp {
             let src_dir = src_dir.clone();
             println!("Removing addon {}...", addon.name);
             js.spawn(async move {
-                let cache_dir = MoxenPath::new()
+                let addon_path = format!("registry/cache/{}", &addon.slug);
+                let addon_dir = MoxenPath::new()
                     .context("loading root moxen path")?
-                    .dir("registry")
-                    .context("loading registry path")?
-                    .dir("cache")
-                    .context("loading cache path")?
+                    .dir(&addon_path)
+                    .with_context(|| format!("loading path: {addon_path}"))?
                     .build();
 
-                let addon_dir = cache_dir.join(addon.slug.clone());
                 if addon_dir.exists() {
                     tokio::fs::remove_dir_all(&addon_dir)
                         .await
@@ -262,9 +253,7 @@ impl MoxenApp {
     pub fn clear_cache(&self) -> Result<()> {
         let cache = MoxenPath::new()
             .context("loading root moxen path")?
-            .dir("registry")
-            .context("loading registry path")?
-            .dir("cache")
+            .dir("registry/cache")
             .context("loading cache path")?
             .build();
 
@@ -293,17 +282,14 @@ impl MoxenApp {
                 .get(&addon.id)
                 .expect("this has to be present at this point");
 
-            let cache_path = MoxenPath::new()
+            let cache_path = format!("registry/cache/{}", &addon.slug);
+            let filename = MoxenPath::new()
                 .context("loading root moxen path")?
-                .dir("registry")
-                .context("loading registry path")?
-                .dir("cache")
-                .context("loading cache path")?
-                .dir(&addon.slug)
-                .with_context(|| format!("loading {} path", addon.slug))?
+                .dir(&cache_path)
+                .with_context(|| format!("loading cache path: {cache_path}"))?
+                .file(&addon.main_file.file_name)
                 .build();
 
-            let filename = cache_path.join(&addon.main_file.file_name);
             if reg_addon.main_file.id != addon.main_file.id || !filename.exists() {
                 to_update.push(addon);
             }
