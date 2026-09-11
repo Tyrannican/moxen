@@ -10,16 +10,18 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions},
 };
 
-type DbEntry = (i32, String, String, i32, i32, i32);
+type DbEntry = (i32, String, String, String, i32, String);
+type AddonUpdateEntry = (i32, String);
+type CacheEntry = (i32, String, String, i32, String, Vec<u8>);
 
 #[derive(Debug, Clone)]
 pub struct Entry {
-    id: i32,
-    name: String,
-    slug: String,
-    file_id: i32,
-    mod_id: i32,
-    file_name: i32,
+    pub id: i32,
+    pub name: String,
+    pub slug: String,
+    pub summary: String,
+    pub file_id: i32,
+    pub file_name: String,
 }
 
 impl Entry {
@@ -28,8 +30,8 @@ impl Entry {
             id: entry.0,
             name: entry.1,
             slug: entry.2,
-            file_id: entry.3,
-            mod_id: entry.4,
+            summary: entry.3,
+            file_id: entry.4,
             file_name: entry.5,
         }
     }
@@ -80,7 +82,7 @@ impl MoxenDbStore {
 
     pub async fn insert(&self, addon: &Addon) -> Result<()> {
         let query = format!(
-            "insert into {}(id, name, slug, file_id, mod_id, file_name) values(?, ?, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, slug = excluded.slug, file_id = excluded.file_id, mod_id = excluded.mod_id, file_name = excluded.file_name",
+            "insert into {}(id, name, slug, summary, file_id, file_name) values(?, ?, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, slug = excluded.slug, summary = excluded.summary, file_id = excluded.file_id, file_name = excluded.file_name",
             self.game_version
         );
 
@@ -88,8 +90,8 @@ impl MoxenDbStore {
             .bind(&addon.id)
             .bind(&addon.name)
             .bind(&addon.slug)
+            .bind(&addon.summary)
             .bind(&addon.main_file.id)
-            .bind(&addon.main_file.mod_id)
             .bind(&addon.main_file.file_name)
             .execute(&self.pool)
             .await
@@ -103,27 +105,41 @@ impl MoxenDbStore {
         Ok(())
     }
 
-    pub async fn insert_cache(&self, addon_id: i32, file_id: i32, content: Vec<u8>) -> Result<()> {
-        sqlx::query("insert into cache(mod_id, file_id, file) values(?, ?, ?) on conflict(mod_id) do update set file_id = excluded.file_id, file = excluded.file")
-            .bind(addon_id)
-            .bind(file_id)
+    pub async fn insert_cache(&self, addon: &Addon, content: Vec<u8>) -> Result<()> {
+        sqlx::query("insert into cache(mod_id, slug, version, file_id, file_name, file) values(?, ?, ?, ?, ?, ?) on conflict(mod_id) do update set slug = excluded.slug, version = excluded.version, file_id = excluded.file_id, file_name = excluded.file_name, file = excluded.file")
+            .bind(addon.id)
+            .bind(&addon.slug)
+            .bind(self.game_version.to_string())
+            .bind(addon.main_file.id)
+            .bind(&addon.main_file.file_name)
             .bind(content)
             .execute(&self.pool)
             .await
-            .with_context(|| format!("adding addon into the cache: {addon_id}"))?;
+            .with_context(|| format!("adding addon into the cache: {}", addon.id))?;
 
         Ok(())
     }
 
-    pub async fn fetch_cache(&self, addon_id: i32) -> Result<Option<Vec<u8>>> {
-        let content: Option<Vec<u8>> =
-            sqlx::query_scalar::<_, Vec<u8>>("select file from cache where mod_id = ?")
+    pub async fn fetch_cache(&self, addon_id: i32) -> Result<Option<CacheEntry>> {
+        let content: Option<CacheEntry> =
+            sqlx::query_as::<_, CacheEntry>("select * from cache where mod_id = ? and version = ?")
                 .bind(addon_id)
+                .bind(self.game_version.to_string())
                 .fetch_optional(&self.pool)
                 .await
                 .with_context(|| format!("fetching entry for {addon_id} from cache"))?;
 
         Ok(content)
+    }
+
+    pub async fn clear_cache(&self) -> Result<()> {
+        sqlx::query("delete from cache where version = ?")
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("clearing cache for version {}", self.game_version))?;
+
+        Ok(())
     }
 
     pub async fn fetch(&self, id: i32) -> Result<Option<Entry>> {
@@ -132,7 +148,7 @@ impl MoxenDbStore {
             .bind(id)
             .fetch_optional(&self.pool)
             .await
-            .with_context(|| format!("fetching entry from {}", self.game_version))?;
+            .with_context(|| format!("fetching entry ({id}) from {}", self.game_version))?;
 
         match entry {
             Some(entry) => Ok(Some(Entry::from_db(entry))),
@@ -158,5 +174,68 @@ impl MoxenDbStore {
             .collect::<Vec<Entry>>();
 
         Ok(addons)
+    }
+
+    pub async fn set_updated(&self, addon_id: i32) -> Result<()> {
+        sqlx::query("insert into updated(mod_id, version) values(?, ?)")
+            .bind(addon_id)
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| {
+                format!(
+                    "setting update state of {addon_id} (version = {})",
+                    self.game_version
+                )
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn fetch_updated(&self) -> Result<Vec<i32>> {
+        let entries: Vec<AddonUpdateEntry> =
+            sqlx::query_as::<_, AddonUpdateEntry>("select * from updated where version = ?")
+                .bind(self.game_version.to_string())
+                .fetch_all(&self.pool)
+                .await
+                .with_context(|| {
+                    format!(
+                        "retrieving updated addons from the {} version",
+                        self.game_version
+                    )
+                })?;
+
+        Ok(entries.into_iter().map(|a| a.0).collect())
+    }
+
+    pub async fn clear_updated_state(&self, addon_id: i32) -> Result<()> {
+        sqlx::query("delete from updated where mod_id = ? and version = ?")
+            .bind(addon_id)
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| {
+                format!(
+                    "removing update state of {addon_id} (version = {})",
+                    self.game_version
+                )
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn clear_update_table(&self) -> Result<()> {
+        sqlx::query("delete from updated where version = ?")
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| {
+                format!(
+                    "clearing update table of addons with version '{}'",
+                    self.game_version
+                )
+            })?;
+
+        Ok(())
     }
 }

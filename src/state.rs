@@ -5,6 +5,7 @@ use tokio::task::JoinSet;
 use crate::{
     addon::Addon,
     api::CurseClient,
+    db::MoxenDbStore,
     store::{
         GameVersion, MoxenConfig, MoxenUpdateTracker,
         path::{MoxenPath, unzip_archive},
@@ -14,6 +15,7 @@ use crate::{
 
 pub struct MoxenApp {
     config: MoxenConfig,
+    db: Arc<MoxenDbStore>,
     update_tracker: MoxenUpdateTracker,
     registry: MoxenRegistry,
 }
@@ -29,8 +31,11 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let config = MoxenConfig::load().context("moxen state creation - config")?;
+        let db = MoxenDbStore::load(config.version)
+            .await
+            .context("loading database")?;
         let update_tracker =
             MoxenUpdateTracker::load().context("moxen state creation - update tracker")?;
         let registry =
@@ -38,6 +43,7 @@ impl MoxenApp {
 
         Ok(Self {
             config,
+            db: Arc::new(db),
             update_tracker,
             registry,
         })
@@ -51,15 +57,24 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub fn list_contents(&self) {
-        if self.registry.is_empty() {
+    pub async fn list_contents(&self) -> Result<()> {
+        let addons = self
+            .db
+            .fetch_all()
+            .await
+            .context("retrieving all addon metadata")?;
+
+        if addons.is_empty() {
             println!("No Addons tracked.");
         } else {
             println!("Tracked addons:");
-            for (key, addon) in self.registry.iter() {
-                println!("* {} ({}) - {}", addon.name, key, addon.summary);
+
+            for addon in addons {
+                println!("* {} ({}) - {}", addon.name, addon.id, addon.summary);
             }
         }
+
+        Ok(())
     }
 
     pub async fn track_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
@@ -76,15 +91,20 @@ impl MoxenApp {
                 .context("joining track task")?
                 .context("track task result")?;
 
-            if !self.registry.contains_key(&addon.id) {
+            if self
+                .db
+                .fetch(addon.id)
+                .await
+                .context("checking tracked status")?
+                .is_none()
+            {
                 println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
-                self.add_registry_item(addon);
+                self.db.insert(&addon).await.context("inserting addon")?;
             } else {
                 println!("Already tracking \"{}\" ({})", addon.name, addon.id);
             }
         }
 
-        self.save().context("tracking addons")?;
         Ok(())
     }
 
@@ -105,9 +125,13 @@ impl MoxenApp {
 
         let mut js: JoinSet<Result<i32>> = JoinSet::new();
         for addon in addons {
-            self.add_registry_item(addon.clone());
+            self.db
+                .insert(&addon)
+                .await
+                .context("inserting addon into registry")?;
 
             let client = Arc::clone(&client);
+            let db = Arc::clone(&self.db);
             js.spawn(async move {
                 println!("Updating {}", addon.name);
                 let content = client
@@ -115,17 +139,9 @@ impl MoxenApp {
                     .await
                     .with_context(|| format!("downloading latest version of {}", addon.name))?;
 
-                let addon_path = format!("registry/cache/{}", &addon.slug);
-                let filename = MoxenPath::new()
-                    .context("loading root moxen path")?
-                    .dir(&addon_path)
-                    .with_context(|| format!("loading path {}", &addon_path))?
-                    .file(addon.main_file.file_name)
-                    .build();
-
-                tokio::fs::write(filename, &content)
+                db.insert_cache(&addon, content)
                     .await
-                    .with_context(|| format!("writing out {} to cache", addon.name))?;
+                    .with_context(|| format!("inserting file for {} into cache", &addon.slug))?;
 
                 Ok(addon.id)
             });
@@ -136,19 +152,27 @@ impl MoxenApp {
                 .context("joining update task")?
                 .context("update task result")?;
 
-            self.update_tracker.add(addon_id);
+            self.db
+                .set_updated(addon_id)
+                .await
+                .context("setting update tracker")?;
         }
 
-        self.save().context("saving registry after update")?;
         println!("Update complete!");
 
         Ok(())
     }
 
     pub async fn install_addons(&mut self) -> Result<()> {
-        // TODO: Check the update tracker to see if there are addon IDs
         self.update_addons().await.context("updating addons")?;
-        if self.update_tracker.is_empty() {
+
+        let updated_addons = self
+            .db
+            .fetch_updated()
+            .await
+            .context("fetching recently updated addons")?;
+
+        if updated_addons.is_empty() {
             return Ok(());
         }
 
@@ -162,27 +186,22 @@ impl MoxenApp {
 
         println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
-        for addon in self.update_tracker.iter() {
-            let addon = self
-                .registry
-                .get(addon)
-                .expect("a valid addon is present")
-                .clone();
+
+        for addon_id in updated_addons {
+            let (_, slug, _, _, _, content) = self
+                .db
+                .fetch_cache(addon_id)
+                .await
+                .context("fetching from cache")?
+                .expect("addon just updated so has to be present");
 
             let install_dir = install_dir.clone();
 
-            let cache_path = format!("registry/cache/{}", &addon.slug);
             js.spawn_blocking(move || {
-                println!("Installing {}...", addon.name);
-                let file = MoxenPath::new()
-                    .context("loading root moxen path")?
-                    .dir(&cache_path)
-                    .with_context(|| format!("loading path: {}", cache_path))?
-                    .file(&addon.main_file.file_name)
-                    .build();
+                println!("Installing {}...", &slug);
 
-                unzip_archive(&file, &install_dir)
-                    .with_context(|| format!("unzipping {}", file.display()))?;
+                unzip_archive(&content, &install_dir)
+                    .with_context(|| format!("unzipping {}", slug))?;
 
                 Ok(())
             });
@@ -195,8 +214,10 @@ impl MoxenApp {
         }
 
         println!("Install complete!");
-        self.update_tracker.clear();
-        self.save().context("saving state after install")?;
+        self.db
+            .clear_update_table()
+            .await
+            .context("clearing update table")?;
 
         Ok(())
     }
@@ -250,14 +271,9 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub fn clear_cache(&self) -> Result<()> {
-        let cache = MoxenPath::new()
-            .context("loading root moxen path")?
-            .dir("registry/cache")
-            .context("loading cache path")?
-            .build();
+    pub async fn clear_cache(&self) -> Result<()> {
+        self.db.clear_cache().await.context("clearing cache")?;
 
-        std::fs::remove_dir_all(cache).context("removing cache dir")?;
         println!("Cleared Moxen cache.");
 
         Ok(())
@@ -266,7 +282,8 @@ impl MoxenApp {
     async fn check_updates(&self, client: Arc<CurseClient>) -> Result<Vec<Addon>> {
         let mut to_update = Vec::new();
         let mut js: JoinSet<Result<Addon>> = JoinSet::new();
-        let addon_ids: Vec<i32> = self.registry.keys().copied().collect();
+        let addons = self.db.fetch_all().await.context("retrieving all addons")?;
+        let addon_ids: Vec<i32> = addons.iter().map(|a| a.id).collect();
         for aid in addon_ids {
             let client = Arc::clone(&client);
             js.spawn(async move { client.get_addon(aid).await });
@@ -277,20 +294,18 @@ impl MoxenApp {
                 .context("joining check update task")?
                 .context("check update result")?;
 
-            let reg_addon = self
-                .registry
-                .get(&addon.id)
-                .expect("this has to be present at this point");
+            let reg_addon = addons
+                .iter()
+                .find(|a| a.id == addon.id)
+                .expect("addon is present as it has to be retrieved upstream");
 
-            let cache_path = format!("registry/cache/{}", &addon.slug);
-            let filename = MoxenPath::new()
-                .context("loading root moxen path")?
-                .dir(&cache_path)
-                .with_context(|| format!("loading cache path: {cache_path}"))?
-                .file(&addon.main_file.file_name)
-                .build();
+            let cached_entry = self
+                .db
+                .fetch_cache(reg_addon.id)
+                .await
+                .context("fetching entry from cache")?;
 
-            if reg_addon.main_file.id != addon.main_file.id || !filename.exists() {
+            if reg_addon.file_id != addon.main_file.id || cached_entry.is_none() {
                 to_update.push(addon);
             }
         }

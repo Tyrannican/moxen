@@ -236,7 +236,10 @@ impl MoxenUpdateTracker {
 
 pub mod path {
     use anyhow::{Context, Result};
-    use std::path::{Path, PathBuf};
+    use std::{
+        io::Cursor,
+        path::{Path, PathBuf},
+    };
     use zip::ZipArchive;
 
     pub struct MoxenPath {
@@ -274,11 +277,9 @@ pub mod path {
         }
     }
 
-    pub fn unzip_archive(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
-        let file = std::fs::File::open(&src)
-            .with_context(|| format!("opening zip archive: {}", src.as_ref().display()))?;
-
-        let mut archive = ZipArchive::new(file).context("initialising ZipArchive")?;
+    pub fn unzip_archive(content: &[u8], dst: impl AsRef<Path>) -> Result<()> {
+        let content = Cursor::new(content);
+        let mut archive = ZipArchive::new(content).context("initialising ZipArchive")?;
 
         for idx in 0..archive.len() {
             let mut entry = archive.by_index(idx).context("retrieving zip entry")?;

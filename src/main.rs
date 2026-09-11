@@ -16,12 +16,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut state = MoxenApp::new().context("loading application")?;
+    let mut state = MoxenApp::new().await.context("loading application")?;
     match cli.command {
-        MoxenCommand::List => {
-            state.list_contents();
-            Ok(())
-        }
+        MoxenCommand::List => state.list_contents().await.context("listing addons"),
         MoxenCommand::Track { addon_ids } => state
             .track_addons(addon_ids)
             .await
@@ -33,7 +30,7 @@ async fn main() -> Result<()> {
         MoxenCommand::Switch { registry } => state
             .switch_game_version(registry)
             .context("switching game version"),
-        MoxenCommand::ClearCache => state.clear_cache().context("clearing cache"),
+        MoxenCommand::ClearCache => state.clear_cache().await.context("clearing cache"),
         MoxenCommand::Install => state.install_addons().await.context("installing addons"),
         MoxenCommand::Uninstall { addon_ids } => state
             .uninstall_addons(addon_ids)
