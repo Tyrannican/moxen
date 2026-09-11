@@ -80,27 +80,85 @@ impl MoxenDbStore {
         Ok(())
     }
 
-    pub async fn insert(&self, addon: &Addon) -> Result<()> {
+    pub async fn insert_addon(&self, addon: &Addon) -> Result<()> {
         let query = format!(
             "insert into {}(id, name, slug, summary, file_id, file_name) values(?, ?, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, slug = excluded.slug, summary = excluded.summary, file_id = excluded.file_id, file_name = excluded.file_name",
             self.game_version
         );
 
         sqlx::query(AssertSqlSafe(query))
-            .bind(&addon.id)
+            .bind(addon.id)
             .bind(&addon.name)
             .bind(&addon.slug)
             .bind(&addon.summary)
-            .bind(&addon.main_file.id)
+            .bind(addon.main_file.id)
             .bind(&addon.main_file.file_name)
             .execute(&self.pool)
             .await
             .with_context(|| {
                 format!(
                     "inserting addon {} ({}) into database",
-                    addon.id, &addon.name
+                    addon.id, addon.name
                 )
             })?;
+
+        Ok(())
+    }
+
+    pub async fn remove_addon(&self, addon_id: i32) -> Result<()> {
+        let query = format!("delete from {} where id = ?", self.game_version);
+        sqlx::query(AssertSqlSafe(query))
+            .bind(addon_id)
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("removing addon {addon_id}"))?;
+
+        Ok(())
+    }
+
+    pub async fn insert_addon_modules(&self, addon: &Addon) -> Result<()> {
+        let mut txn = self
+            .pool
+            .begin()
+            .await
+            .context("starting module transaction")?;
+
+        let version = self.game_version.to_string();
+        for module in addon.main_file.modules.iter() {
+            sqlx::query("insert into modules(mod_id, module, version) values(?, ?, ?)")
+                .bind(addon.id)
+                .bind(module)
+                .bind(&version)
+                .execute(&mut *txn)
+                .await
+                .with_context(|| format!("adding module '{module}' for addon {}", addon.id))?;
+        }
+
+        txn.commit().await.context("commiting module transaction")?;
+
+        Ok(())
+    }
+
+    pub async fn fetch_modules(&self, addon_id: i32) -> Result<Vec<String>> {
+        let modules: Vec<String> = sqlx::query_scalar::<_, String>(
+            "select module from modules where mod_id = ? and version = ?",
+        )
+        .bind(addon_id)
+        .bind(self.game_version.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .with_context(|| format!("retrieving modules for addon {addon_id}"))?;
+
+        Ok(modules)
+    }
+
+    pub async fn remove_addon_modules(&self, addon_id: i32) -> Result<()> {
+        sqlx::query("delete from modules where mod_id = ? and version = ?")
+            .bind(addon_id)
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("removing modules for addon {addon_id}"))?;
 
         Ok(())
     }
@@ -132,6 +190,17 @@ impl MoxenDbStore {
         Ok(content)
     }
 
+    pub async fn delete_from_cache(&self, addon_id: i32) -> Result<()> {
+        sqlx::query("delete from cache where mod_id = ? and version = ?")
+            .bind(addon_id)
+            .bind(self.game_version.to_string())
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("clearing cache entry for {addon_id}"))?;
+
+        Ok(())
+    }
+
     pub async fn clear_cache(&self) -> Result<()> {
         sqlx::query("delete from cache where version = ?")
             .bind(self.game_version.to_string())
@@ -142,7 +211,7 @@ impl MoxenDbStore {
         Ok(())
     }
 
-    pub async fn fetch(&self, id: i32) -> Result<Option<Entry>> {
+    pub async fn fetch_addon(&self, id: i32) -> Result<Option<Entry>> {
         let query = format!("select * from {} where id = ?1", self.game_version);
         let entry: Option<DbEntry> = sqlx::query_as(AssertSqlSafe(query))
             .bind(id)
@@ -170,7 +239,7 @@ impl MoxenDbStore {
 
         let addons = entries
             .into_iter()
-            .map(|entry| Entry::from_db(entry))
+            .map(Entry::from_db)
             .collect::<Vec<Entry>>();
 
         Ok(addons)

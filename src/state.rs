@@ -8,16 +8,14 @@ use crate::{
     db::MoxenDbStore,
     store::{
         GameVersion, MoxenConfig, MoxenUpdateTracker,
-        path::{MoxenPath, unzip_archive},
-        registry::{self, MoxenRegistry},
+        path::unzip_archive,
+        registry::{self},
     },
 };
 
 pub struct MoxenApp {
     config: MoxenConfig,
     db: Arc<MoxenDbStore>,
-    update_tracker: MoxenUpdateTracker,
-    registry: MoxenRegistry,
 }
 
 impl MoxenApp {
@@ -36,16 +34,10 @@ impl MoxenApp {
         let db = MoxenDbStore::load(config.version)
             .await
             .context("loading database")?;
-        let update_tracker =
-            MoxenUpdateTracker::load().context("moxen state creation - update tracker")?;
-        let registry =
-            registry::load(&config.version).context("moxen state creation - registry")?;
 
         Ok(Self {
             config,
             db: Arc::new(db),
-            update_tracker,
-            registry,
         })
     }
 
@@ -93,13 +85,20 @@ impl MoxenApp {
 
             if self
                 .db
-                .fetch(addon.id)
+                .fetch_addon(addon.id)
                 .await
                 .context("checking tracked status")?
                 .is_none()
             {
                 println!("Tracking addon \"{}\" ({})", addon.name, addon.id);
-                self.db.insert(&addon).await.context("inserting addon")?;
+                self.db
+                    .insert_addon(&addon)
+                    .await
+                    .context("inserting addon")?;
+                self.db
+                    .insert_addon_modules(&addon)
+                    .await
+                    .context("adding addon modules")?;
             } else {
                 println!("Already tracking \"{}\" ({})", addon.name, addon.id);
             }
@@ -126,7 +125,7 @@ impl MoxenApp {
         let mut js: JoinSet<Result<i32>> = JoinSet::new();
         for addon in addons {
             self.db
-                .insert(&addon)
+                .insert_addon(&addon)
                 .await
                 .context("inserting addon into registry")?;
 
@@ -141,7 +140,7 @@ impl MoxenApp {
 
                 db.insert_cache(&addon, content)
                     .await
-                    .with_context(|| format!("inserting file for {} into cache", &addon.slug))?;
+                    .with_context(|| format!("inserting file for {} into cache", addon.slug))?;
 
                 Ok(addon.id)
             });
@@ -198,7 +197,7 @@ impl MoxenApp {
             let install_dir = install_dir.clone();
 
             js.spawn_blocking(move || {
-                println!("Installing {}...", &slug);
+                println!("Installing {}...", slug);
 
                 unzip_archive(&content, &install_dir)
                     .with_context(|| format!("unzipping {}", slug))?;
@@ -227,29 +226,39 @@ impl MoxenApp {
         let src_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         for id in mod_ids {
-            let Some(addon) = self.remove_registry_item(id) else {
+            let Some(addon) = self
+                .db
+                .fetch_addon(id)
+                .await
+                .with_context(|| format!("fetching addon {id}"))?
+            else {
                 eprintln!("No such addon: {}", id);
                 continue;
             };
 
             let src_dir = src_dir.clone();
+
+            let modules = self
+                .db
+                .fetch_modules(id)
+                .await
+                .context("fetching modules")?;
+
             println!("Removing addon {}...", addon.name);
+            self.db
+                .remove_addon_modules(id)
+                .await
+                .context("clearing modules")?;
+            self.db.remove_addon(id).await.context("removing addon")?;
+            self.db
+                .delete_from_cache(id)
+                .await
+                .context("removing addon from cache")?;
+
             js.spawn(async move {
-                let addon_path = format!("registry/cache/{}", &addon.slug);
-                let addon_dir = MoxenPath::new()
-                    .context("loading root moxen path")?
-                    .dir(&addon_path)
-                    .with_context(|| format!("loading path: {addon_path}"))?
-                    .build();
-
-                if addon_dir.exists() {
-                    tokio::fs::remove_dir_all(&addon_dir)
-                        .await
-                        .with_context(|| format!("removing cached dir {}", addon_dir.display()))?;
-                }
-
-                for module in addon.main_file.modules.iter() {
+                for module in modules.iter() {
                     let mod_path = src_dir.join(module);
+                    eprintln!("Removing dir {}", mod_path.display());
                     tokio::fs::remove_dir_all(&mod_path)
                         .await
                         .with_context(|| format!("removing module {}", mod_path.display()))?;
@@ -265,7 +274,6 @@ impl MoxenApp {
                 .context("removal task result")?;
         }
 
-        self.save().context("removal - saving registry")?;
         println!("Successfully removed addons!");
 
         Ok(())
@@ -311,18 +319,5 @@ impl MoxenApp {
         }
 
         Ok(to_update)
-    }
-
-    fn add_registry_item(&mut self, addon: Addon) {
-        self.registry.insert(addon.id, addon);
-    }
-
-    fn remove_registry_item(&mut self, id: i32) -> Option<Addon> {
-        self.registry.remove(&id)
-    }
-
-    fn save(&self) -> Result<()> {
-        self.update_tracker.save()?;
-        registry::save(&self.registry, &self.config.version).context("saving state - registry")
     }
 }

@@ -56,3 +56,9 @@ create table if not exists updated(
     mod_id integer not null unique primary key,
     version text not null
 );
+
+create table if not exists modules(
+    mod_id integer not null,
+    module text not null,
+    version text not null
+);
