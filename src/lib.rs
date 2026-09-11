@@ -1,5 +1,6 @@
 pub mod addon;
 pub mod api;
+pub mod db;
 pub mod state;
 pub mod store;
 
