@@ -89,10 +89,6 @@ impl MoxenApp {
                     .insert_addon(&addon)
                     .await
                     .context("inserting addon")?;
-                self.db
-                    .insert_addon_modules(&addon)
-                    .await
-                    .context("adding addon modules")?;
             } else {
                 println!("Already tracking \"{}\" ({})", addon.name, addon.id);
             }
@@ -118,11 +114,6 @@ impl MoxenApp {
 
         let mut js: JoinSet<Result<i32>> = JoinSet::new();
         for addon in addons {
-            self.db
-                .insert_addon(&addon)
-                .await
-                .context("inserting addon into registry")?;
-
             let client = Arc::clone(&client);
             let db = Arc::clone(&self.db);
             js.spawn(async move {

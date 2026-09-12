@@ -46,6 +46,8 @@ impl MoxenDbStore {
     pub(crate) async fn load(version: GameVersion) -> Result<Self> {
         let root = MoxenPath::new()
             .context("retrieving moxen root directory")?
+            .dir("registry")
+            .context("constructing registry directory")?
             .build();
 
         let db_name = PathBuf::from("sqlite:/").join(root).join("registry.db");
@@ -81,19 +83,25 @@ impl MoxenDbStore {
     }
 
     pub async fn insert_addon(&self, addon: &Addon) -> Result<()> {
-        let query = format!(
+        let mut txn = self
+            .pool
+            .begin()
+            .await
+            .context("starting insert transaction")?;
+
+        let insert_query = format!(
             "insert into {}(id, name, slug, summary, file_id, file_name) values(?, ?, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, slug = excluded.slug, summary = excluded.summary, file_id = excluded.file_id, file_name = excluded.file_name",
             self.game_version
         );
 
-        sqlx::query(AssertSqlSafe(query))
+        sqlx::query(AssertSqlSafe(insert_query))
             .bind(addon.id)
             .bind(&addon.name)
             .bind(&addon.slug)
             .bind(&addon.summary)
             .bind(addon.main_file.id)
             .bind(&addon.main_file.file_name)
-            .execute(&self.pool)
+            .execute(&mut *txn)
             .await
             .with_context(|| {
                 format!(
@@ -101,27 +109,6 @@ impl MoxenDbStore {
                     addon.id, addon.name
                 )
             })?;
-
-        Ok(())
-    }
-
-    pub async fn remove_addon(&self, addon_id: i32) -> Result<()> {
-        let query = format!("delete from {} where id = ?", self.game_version);
-        sqlx::query(AssertSqlSafe(query))
-            .bind(addon_id)
-            .execute(&self.pool)
-            .await
-            .with_context(|| format!("removing addon {addon_id}"))?;
-
-        Ok(())
-    }
-
-    pub async fn insert_addon_modules(&self, addon: &Addon) -> Result<()> {
-        let mut txn = self
-            .pool
-            .begin()
-            .await
-            .context("starting module transaction")?;
 
         let version = self.game_version.to_string();
         for module in addon.main_file.modules.iter() {
@@ -134,7 +121,18 @@ impl MoxenDbStore {
                 .with_context(|| format!("adding module '{module}' for addon {}", addon.id))?;
         }
 
-        txn.commit().await.context("commiting module transaction")?;
+        txn.commit().await.context("commiting insert transaction")?;
+
+        Ok(())
+    }
+
+    pub async fn remove_addon(&self, addon_id: i32) -> Result<()> {
+        let query = format!("delete from {} where id = ?", self.game_version);
+        sqlx::query(AssertSqlSafe(query))
+            .bind(addon_id)
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("removing addon {addon_id}"))?;
 
         Ok(())
     }
