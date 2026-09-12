@@ -1,6 +1,8 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize, de::Deserializer};
 
+// TODO: Future iteration - Remove the Disk-releated items from the deserialization
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Addon {
