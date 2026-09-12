@@ -1,15 +1,9 @@
-use std::{
-    collections::{HashSet, hash_set::Iter as HashSetIter},
-    io::Write,
-    path::PathBuf,
-};
+use std::{io::Write, path::PathBuf};
 
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-use crate::addon::Addon;
 use path::MoxenPath;
 
 #[derive(Deserialize, Serialize)]
@@ -41,14 +35,6 @@ impl Default for AddonInstallPath {
         }
     }
 }
-
-const VERSIONS: [GameVersion; 5] = [
-    GameVersion::Retail,
-    GameVersion::Beta,
-    GameVersion::Ptr,
-    GameVersion::Classic,
-    GameVersion::ClassicEra,
-];
 
 #[derive(Deserialize, Serialize, Default, Debug, PartialEq, Eq, Copy, Clone, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -171,60 +157,6 @@ impl MoxenConfig {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone, Default)]
-pub struct MoxenUpdateTracker {
-    updated_addons: HashSet<i32>,
-}
-
-impl MoxenUpdateTracker {
-    pub fn load() -> Result<Self> {
-        let tracker_path = MoxenPath::new()
-            .context("loading root moxen path")?
-            .file("update_tracker.toml")
-            .build();
-
-        let tracker = if !tracker_path.exists() {
-            let tracker = MoxenUpdateTracker::default();
-            let content = toml::to_string_pretty(&tracker).context("serialising tracker")?;
-            std::fs::write(&tracker_path, &content).context("writing out update tracker file")?;
-            tracker
-        } else {
-            let content = std::fs::read_to_string(&tracker_path)?;
-            toml::from_str(&content)?
-        };
-
-        Ok(tracker)
-    }
-
-    pub fn iter(&self) -> HashSetIter<'_, i32> {
-        self.updated_addons.iter()
-    }
-
-    pub fn add(&mut self, addon: i32) {
-        self.updated_addons.insert(addon);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.updated_addons.is_empty()
-    }
-
-    pub fn save(&self) -> Result<()> {
-        let tracker_path = MoxenPath::new()
-            .context("loading root moxen path")?
-            .file("update_tracker.toml")
-            .build();
-
-        let content = toml::to_string_pretty(&self).context("serialising tracker")?;
-        std::fs::write(&tracker_path, &content).context("writing out update tracker file")?;
-
-        Ok(())
-    }
-
-    pub fn clear(&mut self) {
-        self.updated_addons.clear()
-    }
-}
-
 pub mod path {
     use anyhow::{Context, Result};
     use std::{
@@ -307,39 +239,6 @@ pub mod path {
                 })?;
             }
         }
-
-        Ok(())
-    }
-}
-
-pub mod registry {
-    use super::*;
-
-    pub type MoxenRegistry = HashMap<i32, Addon>;
-
-    pub fn initialise() -> Result<()> {
-        for version in VERSIONS {
-            let reg = MoxenRegistry::new();
-            let registry_path = version.registry_path().context("registry path")?;
-            let registry = serde_json::to_string_pretty(&reg).context("serialising registry")?;
-            std::fs::write(&registry_path, &registry).context("writing new registry")?;
-        }
-
-        Ok(())
-    }
-
-    pub fn load(version: &GameVersion) -> Result<MoxenRegistry> {
-        let registry_path = version.registry_path().context("registry path")?;
-        let content = std::fs::read_to_string(&registry_path).context("reading registry file")?;
-        let registry = serde_json::from_str(&content).context("deserialising registry")?;
-
-        Ok(registry)
-    }
-
-    pub fn save(registry: &MoxenRegistry, version: &GameVersion) -> Result<()> {
-        let registry_path = version.registry_path().context("registry path")?;
-        let contents = serde_json::to_string_pretty(registry).context("serialising registry")?;
-        std::fs::write(&registry_path, &contents).context("saving registry to disk")?;
 
         Ok(())
     }

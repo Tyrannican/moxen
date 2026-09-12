@@ -6,11 +6,7 @@ use crate::{
     addon::Addon,
     api::CurseClient,
     db::MoxenDbStore,
-    store::{
-        GameVersion, MoxenConfig, MoxenUpdateTracker,
-        path::unzip_archive,
-        registry::{self},
-    },
+    store::{GameVersion, MoxenConfig, path::unzip_archive},
 };
 
 pub struct MoxenApp {
@@ -21,9 +17,7 @@ pub struct MoxenApp {
 impl MoxenApp {
     pub fn initialise() -> Result<()> {
         println!("Initialising Moxen...\n");
-        registry::initialise().context("moxen initialise - registry")?;
         MoxenConfig::initialise().context("moxen initialise - config")?;
-        MoxenUpdateTracker::load().context("moxen initialise - update tracker")?;
 
         println!("Successfully initialised Moxen!");
         Ok(())
