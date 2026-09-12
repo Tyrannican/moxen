@@ -258,7 +258,6 @@ impl MoxenApp {
             js.spawn(async move {
                 for module in modules.iter() {
                     let mod_path = src_dir.join(module);
-                    eprintln!("Removing dir {}", mod_path.display());
                     tokio::fs::remove_dir_all(&mod_path)
                         .await
                         .with_context(|| format!("removing module {}", mod_path.display()))?;

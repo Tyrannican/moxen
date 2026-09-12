@@ -109,16 +109,7 @@ impl MoxenConfig {
             .file("config.toml")
             .build();
 
-        let registries_exist = VERSIONS.iter().all(|version| {
-            let path = version
-                .registry_path()
-                .context("loading registry path")
-                .expect("error loading path");
-
-            path.exists()
-        });
-
-        Ok(cfg_path.exists() && registries_exist)
+        Ok(cfg_path.exists())
     }
 
     pub fn initialise() -> Result<()> {
