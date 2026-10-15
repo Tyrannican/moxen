@@ -41,14 +41,11 @@ pub enum MoxenCommand {
     /// Clear the Moxen file cache
     ClearCache,
 
-    /// Download the latest version of the addon(s)
+    /// Download the latest version of the addon(s) and install them in the WoW directory
     Update,
 
-    /// Install the addons in the WoW directory
-    Install,
-
     /// Uninstall the selected Addons
-    Uninstall {
+    Remove {
         /// Addon IDs to remove
         addon_ids: Vec<i32>,
     },
