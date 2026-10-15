@@ -31,7 +31,10 @@ async fn main() -> Result<()> {
             .switch_game_version(registry)
             .context("switching game version"),
         MoxenCommand::ClearCache => state.clear_cache().await.context("clearing cache"),
-        MoxenCommand::Install => state.install_addons().await.context("installing addons"),
+        MoxenCommand::Install => {
+            todo!()
+            // state.install_addons().await.context("installing addons"),
+        }
         MoxenCommand::Uninstall { addon_ids } => state
             .uninstall_addons(addon_ids)
             .await

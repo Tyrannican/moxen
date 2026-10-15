@@ -11,7 +11,6 @@ use sqlx::{
 };
 
 type DbEntry = (i32, String, String, String, i32, String);
-type AddonUpdateEntry = (i32, String);
 type CacheEntry = (i32, String, String, i32, String, Vec<u8>);
 
 #[derive(Debug, Clone)]
@@ -241,68 +240,5 @@ impl MoxenDbStore {
             .collect::<Vec<Entry>>();
 
         Ok(addons)
-    }
-
-    pub async fn set_updated(&self, addon_id: i32) -> Result<()> {
-        sqlx::query("insert into updated(mod_id, version) values(?, ?)")
-            .bind(addon_id)
-            .bind(self.game_version.to_string())
-            .execute(&self.pool)
-            .await
-            .with_context(|| {
-                format!(
-                    "setting update state of {addon_id} (version = {})",
-                    self.game_version
-                )
-            })?;
-
-        Ok(())
-    }
-
-    pub async fn fetch_updated(&self) -> Result<Vec<i32>> {
-        let entries: Vec<AddonUpdateEntry> =
-            sqlx::query_as::<_, AddonUpdateEntry>("select * from updated where version = ?")
-                .bind(self.game_version.to_string())
-                .fetch_all(&self.pool)
-                .await
-                .with_context(|| {
-                    format!(
-                        "retrieving updated addons from the {} version",
-                        self.game_version
-                    )
-                })?;
-
-        Ok(entries.into_iter().map(|a| a.0).collect())
-    }
-
-    pub async fn clear_updated_state(&self, addon_id: i32) -> Result<()> {
-        sqlx::query("delete from updated where mod_id = ? and version = ?")
-            .bind(addon_id)
-            .bind(self.game_version.to_string())
-            .execute(&self.pool)
-            .await
-            .with_context(|| {
-                format!(
-                    "removing update state of {addon_id} (version = {})",
-                    self.game_version
-                )
-            })?;
-
-        Ok(())
-    }
-
-    pub async fn clear_update_table(&self) -> Result<()> {
-        sqlx::query("delete from updated where version = ?")
-            .bind(self.game_version.to_string())
-            .execute(&self.pool)
-            .await
-            .with_context(|| {
-                format!(
-                    "clearing update table of addons with version '{}'",
-                    self.game_version
-                )
-            })?;
-
-        Ok(())
     }
 }

@@ -131,35 +131,25 @@ impl MoxenApp {
             });
         }
 
+        let mut updated_ids = Vec::new();
         while let Some(result) = js.join_next().await {
             let addon_id = result
                 .context("joining update task")?
                 .context("update task result")?;
 
-            self.db
-                .set_updated(addon_id)
-                .await
-                .context("setting update tracker")?;
+            updated_ids.push(addon_id);
         }
+
+        self.install_addons(updated_ids)
+            .await
+            .context("installing addons")?;
 
         println!("Update complete!");
 
         Ok(())
     }
 
-    pub async fn install_addons(&mut self) -> Result<()> {
-        self.update_addons().await.context("updating addons")?;
-
-        let updated_addons = self
-            .db
-            .fetch_updated()
-            .await
-            .context("fetching recently updated addons")?;
-
-        if updated_addons.is_empty() {
-            return Ok(());
-        }
-
+    pub async fn install_addons(&mut self, updated_ids: Vec<i32>) -> Result<()> {
         let install_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         // Debug install dir for testing
@@ -171,7 +161,7 @@ impl MoxenApp {
         println!("Installing addons...");
         let mut js: JoinSet<Result<()>> = JoinSet::new();
 
-        for addon_id in updated_addons {
+        for addon_id in updated_ids {
             let (_, slug, _, _, _, content) = self
                 .db
                 .fetch_cache(addon_id)
@@ -196,12 +186,6 @@ impl MoxenApp {
                 .context("joining install task")?
                 .context("install task result")?;
         }
-
-        println!("Install complete!");
-        self.db
-            .clear_update_table()
-            .await
-            .context("clearing update table")?;
 
         Ok(())
     }
