@@ -28,9 +28,8 @@ Commands:
   switch       Switch registry to use (retail, ptr, beta, classic, classic-era)
   list         List tracked addons in the registry
   clear-cache  Clear the Moxen file cache
-  update       Download the latest version of the addon(s)
-  install      Install the addons in the WoW directory
-  uninstall    Uninstall the selected Addons
+  update       Download the latest version of the addon(s) and install them in the WoW directory
+  remove       Uninstall the selected Addons
   help         Print this message or the help of the given subcommand(s)
 
 Options:
