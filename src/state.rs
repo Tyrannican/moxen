@@ -181,12 +181,7 @@ impl MoxenApp {
             });
         }
 
-        while let Some(result) = js.join_next().await {
-            result
-                .context("joining install task")?
-                .context("install task result")?;
-        }
-
+        js.join_all().await;
         Ok(())
     }
 
