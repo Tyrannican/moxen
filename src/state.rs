@@ -63,12 +63,13 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn track_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
+    pub async fn track_addons(&mut self, mod_ids: &[i32]) -> Result<()> {
         let client = Arc::new(CurseClient::new(&self.config.api_key));
         let mut js = JoinSet::new();
 
         for mid in mod_ids.into_iter() {
             let client = Arc::clone(&client);
+            let mid = *mid;
             js.spawn(async move { client.get_addon(mid).await });
         }
 
@@ -149,7 +150,7 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn install_addons(&mut self, updated_ids: Vec<i32>) -> Result<()> {
+    async fn install_addons(&mut self, updated_ids: Vec<i32>) -> Result<()> {
         let install_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         // Debug install dir for testing
@@ -185,50 +186,35 @@ impl MoxenApp {
         Ok(())
     }
 
-    pub async fn uninstall_addons(&mut self, mod_ids: Vec<i32>) -> Result<()> {
+    pub async fn uninstall_addons(&mut self, mod_ids: &[i32]) -> Result<()> {
         let mut js: JoinSet<Result<()>> = JoinSet::new();
         let src_dir = self.config.install_dir.addon_dir(&self.config.version);
 
         for id in mod_ids {
-            let Some(addon) = self
-                .db
-                .fetch_addon(id)
-                .await
-                .with_context(|| format!("fetching addon {id}"))?
-            else {
-                eprintln!("No such addon: {}", id);
-                continue;
-            };
-
-            let src_dir = src_dir.clone();
-
+            let id = *id;
             let modules = self
                 .db
                 .fetch_modules(id)
                 .await
                 .context("fetching modules")?;
 
-            println!("Removing addon {}...", addon.name);
-            self.db
-                .remove_addon_modules(id)
-                .await
-                .context("clearing modules")?;
-            self.db.remove_addon(id).await.context("removing addon")?;
-            self.db
-                .delete_from_cache(id)
-                .await
-                .context("removing addon from cache")?;
+            if let Err(e) = self.remove_addon_from_registry(id).await {
+                if e.to_string() == "no addon" {
+                    continue;
+                }
 
-            js.spawn(async move {
-                for module in modules.iter() {
+                anyhow::bail!(e);
+            };
+
+            for module in modules {
+                let src_dir = src_dir.clone();
+                js.spawn(async move {
                     let mod_path = src_dir.join(module);
                     tokio::fs::remove_dir_all(&mod_path)
                         .await
-                        .with_context(|| format!("removing module {}", mod_path.display()))?;
-                }
-
-                Ok(())
-            });
+                        .with_context(|| format!("removing module {}", mod_path.display()))
+                });
+            }
         }
 
         while let Some(result) = js.join_next().await {
@@ -238,6 +224,34 @@ impl MoxenApp {
         }
 
         println!("Successfully removed addons!");
+
+        Ok(())
+    }
+
+    async fn remove_addon_from_registry(&mut self, addon_id: i32) -> Result<()> {
+        let Some(addon) = self
+            .db
+            .fetch_addon(addon_id)
+            .await
+            .with_context(|| format!("fetching addon {addon_id}"))?
+        else {
+            eprintln!("No such addon: {addon_id}");
+            anyhow::bail!("no addon");
+        };
+
+        println!("Removing addon {}...", addon.name);
+        self.db
+            .remove_addon_modules(addon_id)
+            .await
+            .context("clearing modules")?;
+        self.db
+            .remove_addon(addon_id)
+            .await
+            .context("removing addon")?;
+        self.db
+            .delete_from_cache(addon_id)
+            .await
+            .context("removing addon from cache")?;
 
         Ok(())
     }
@@ -282,5 +296,29 @@ impl MoxenApp {
         }
 
         Ok(to_update)
+    }
+
+    pub async fn refresh_registry(&mut self) -> Result<()> {
+        let addons = self
+            .db
+            .fetch_all()
+            .await
+            .context("retrieving all addon metadata")?;
+
+        if addons.is_empty() {
+            println!("No Addons tracked - refresh not required");
+            return Ok(());
+        }
+
+        println!("Refreshing registry...");
+        let addon_ids: Vec<_> = addons.into_iter().map(|addon| addon.id).collect();
+        for addon in &addon_ids {
+            self.remove_addon_from_registry(*addon).await?;
+        }
+        self.track_addons(&addon_ids).await?;
+        self.update_addons().await?;
+        println!("Refresh complete!");
+
+        Ok(())
     }
 }

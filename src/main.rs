@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
     match cli.command {
         MoxenCommand::List => state.list_contents().await.context("listing addons"),
         MoxenCommand::Track { addon_ids } => state
-            .track_addons(addon_ids)
+            .track_addons(&addon_ids)
             .await
             .context("tracking addons"),
         MoxenCommand::Update => {
@@ -32,9 +32,13 @@ async fn main() -> Result<()> {
             .context("switching game version"),
         MoxenCommand::ClearCache => state.clear_cache().await.context("clearing cache"),
         MoxenCommand::Remove { addon_ids } => state
-            .uninstall_addons(addon_ids)
+            .uninstall_addons(&addon_ids)
             .await
             .context("uninstalling addons"),
+        MoxenCommand::Refresh => state
+            .refresh_registry()
+            .await
+            .context("refreshing registry"),
         MoxenCommand::Init => unreachable!("this is covered above"),
     }
 }

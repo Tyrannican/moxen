@@ -49,6 +49,9 @@ pub enum MoxenCommand {
         /// Addon IDs to remove
         addon_ids: Vec<i32>,
     },
+
+    /// Refreshes the registry by removing and re-installing all Addons
+    Refresh,
 }
 
 pub fn is_initialised() -> Result<bool> {
