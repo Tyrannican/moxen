@@ -1,3 +1,10 @@
+# 0.5.1
+
+* Added the ability to refresh the registry with the `refresh` CLI arguments
+    * This will remove the addon from the registry and re-install it
+    * This will **NOT** uninstall the existing addon in the WoW directory
+    * Simply will re-populate the registry
+
 # 0.5.0
 
 * Removed `install` CLI argument

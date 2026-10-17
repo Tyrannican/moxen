@@ -30,6 +30,7 @@ Commands:
   clear-cache  Clear the Moxen file cache
   update       Download the latest version of the addon(s) and install them in the WoW directory
   remove       Uninstall the selected Addons
+  refresh      Refreshes the registry by removing and re-installing all Addons
   help         Print this message or the help of the given subcommand(s)
 
 Options:
